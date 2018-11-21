@@ -1,2 +1,4 @@
 [server]
 hostname = "example.com"
+public_key = "pubkey.key"
+private_key = "privkey.pem"
