@@ -37,26 +37,26 @@ func TestActivityPubHeaders(t *testing.T) {
 		},
 		{
 			"should not accept requests with no accept types and wrong content type",
-			[]string{"application/json"},			
+			[]string{"application/json"},
 			[]string{""},
 			http.StatusUnsupportedMediaType,
 		},
 		{
 			"should not accept requests with wrong accept types and wrong content type",
-			[]string{"application/json"},			
+			[]string{"application/json"},
 			[]string{"application/json"},
 			http.StatusUnsupportedMediaType,
 		},
 		{
 			"should accept requests with activitypub content type",
-			[]string{"application/activity+json"},		
+			[]string{"application/activity+json"},
 			[]string{""},
 			http.StatusOK,
 		},
 		{
 			"should accept requests with activitypub content type and accept header",
 			[]string{"application/activity+json"},
-			[]string{"application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""},			
+			[]string{"application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""},
 			http.StatusOK,
 		},
 	}

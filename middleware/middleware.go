@@ -35,7 +35,7 @@ func ActivityPubHeaders(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
