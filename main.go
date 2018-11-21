@@ -1,10 +1,11 @@
 package main
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	mware "github.com/koshroy/turnover/middleware"
-	"net/http"
 )
 
 func main() {
