@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/url"
 
@@ -29,8 +30,20 @@ func (a Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"https://www.w3.org/ns/activitystreams",
 			"https://web-payments.org/contexts/security-v1.jsonld",
 		},
-		"type":      "application",
-		"followers": a.routeURL("/followers").String(),
+		"type":      "Application",
+		"following": a.routeURL("/following", "").String(),
+		"followers": a.routeURL("/followers", "").String(),
+		"inbox":     a.routeURL("/inbox", "").String(),
+		"outbox":    a.routeURL("/outbox", "").String(),
+		"id":        a.routeURL("/actor", "").String(),
+		"name":      "turnover relay",
+		"summary":   "An ActivityPub Relay",
+		"url":       a.routeURL("/actor", "").String(),
+		"publicKey": map[string]string{
+			"publicKeyPem": "",
+			"owner":        a.routeURL("/actor", "").String(),
+			"id":           a.routeURL("/actor", "#main-key").String(),
+		},
 	}
 
 	b, err := json.Marshal(actorData)
@@ -39,13 +52,17 @@ func (a Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write(b)
+	_, err = w.Write(b)
+	if err != nil {
+		log.Printf("error writing response: %v\n", err)
+	}
 }
 
-func (a Actor) routeURL(path string) *url.URL {
+func (a Actor) routeURL(path, fragment string) *url.URL {
 	return &url.URL{
-		Scheme: a.Scheme,
-		Host:   a.Domain,
-		Path:   path,
+		Scheme:   a.Scheme,
+		Host:     a.Domain,
+		Path:     path,
+		Fragment: fragment,
 	}
 }
