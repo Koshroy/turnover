@@ -13,14 +13,16 @@ import (
 type Actor struct {
 	Scheme, Domain string
 	Store          *keystore.Store
+	PubKeyPem      string
 }
 
 // NewActor creates a new Actor
 func NewActor(scheme, domain string, store *keystore.Store) Actor {
 	return Actor{
-		Scheme: scheme,
-		Domain: domain,
-		Store:  store,
+		Scheme:    scheme,
+		Domain:    domain,
+		Store:     store,
+		PubKeyPem: string(store.PubKeyPem()),
 	}
 }
 
@@ -40,7 +42,7 @@ func (a Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"summary":   "An ActivityPub Relay",
 		"url":       a.routeURL("/actor", "").String(),
 		"publicKey": map[string]string{
-			"publicKeyPem": "",
+			"publicKeyPem": a.PubKeyPem,
 			"owner":        a.routeURL("/actor", "").String(),
 			"id":           a.routeURL("/actor", "#main-key").String(),
 		},

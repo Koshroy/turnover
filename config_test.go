@@ -10,6 +10,7 @@ import (
 func TestLoadConfig(t *testing.T) {
 	configData := `
         [server]
+        scheme = "https"
         hostname = "example.com"
         public_key = "example.key"
         private_key = "example.pem"
@@ -26,6 +27,10 @@ func TestLoadConfig(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("could not validate config: %v", err)
+	}
+
+	if config.Server.Scheme != "https" {
+		t.Errorf("config scheme expected https got: %s", config.Server.Scheme)
 	}
 
 	if config.Server.Hostname != "example.com" {

@@ -1,4 +1,5 @@
 [server]
+scheme = "https"
 hostname = "example.com"
-public_key = "pubkey.key"
+public_key = "pubkey.pem"
 private_key = "privkey.pem"

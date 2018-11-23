@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	
+
 	"github.com/BurntSushi/toml"
 )
 
 //ServerConfig defines config options for running the server
 type ServerConfig struct {
+	Scheme     string
 	Hostname   string
 	PublicKey  string `toml:"public_key"`
 	PrivateKey string `toml:"private_key"`
@@ -51,6 +52,10 @@ func ValidateConfig(conf Config) error {
 
 	if conf.Server.PrivateKey == "" {
 		return fmt.Errorf("no private key path given")
+	}
+
+	if conf.Server.Scheme == "" {
+		return fmt.Errorf("no scheme given")
 	}
 
 	return nil

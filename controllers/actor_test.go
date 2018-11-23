@@ -16,7 +16,7 @@ type stringTest struct {
 
 func testStrings(t *testing.T, data map[string]interface{}, tests []stringTest) {
 	for _, tt := range tests {
-		t.Run("key_"+tt.Key, func(t *testing.T) {
+		t.Run("response_key_"+tt.Key, func(t *testing.T) {
 			val, ok := data[tt.Key]
 			if !ok {
 				t.Errorf("could not find key %s in %v", tt.Key, data)
@@ -37,10 +37,27 @@ func testStrings(t *testing.T, data map[string]interface{}, tests []stringTest) 
 
 }
 
+func checkPubKeyPem(t *testing.T, resp map[string]interface{}, pubKeyPemStr string) {
+	t.Run("response_privkey_pem", func(t *testing.T) {
+		pubKeyBlockRaw, ok := resp["publicKey"]
+		if !ok {
+			t.Errorf("key publicKey not found in response")
+			t.FailNow()
+		}
+
+		pubKeyBlock := pubKeyBlockRaw.(map[string]interface{})
+		pubKeyPemRaw := pubKeyBlock["publicKeyPem"]
+		pubKeyPem := pubKeyPemRaw.(string)
+		if pubKeyPem != pubKeyPemStr {
+			t.Errorf("public key PEM incorrect expected: %s got: %s", pubKeyPemStr, pubKeyPem)
+		}
+	})
+}
+
 func TestActorHandler(t *testing.T) {
 	t.Parallel()
 
-	a := NewActor("https", "www.example.com", &keystore.Store{})
+	a := NewActor("https", "www.example.com", keystore.MockStore())
 
 	req := httptest.NewRequest("", "/", nil)
 	w := httptest.NewRecorder()
@@ -78,4 +95,6 @@ func TestActorHandler(t *testing.T) {
 			stringTest{"outbox", "https://www.example.com/outbox"},
 		},
 	)
+
+	checkPubKeyPem(t, respData, string(keystore.MockPubKey))
 }
