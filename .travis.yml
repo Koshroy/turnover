@@ -3,6 +3,7 @@ go:
   - '1.11'
 env:
   - GOMETALINTER_VER=2.0.11
+  - GO111MODULE=on
 before_script:
   - pushd $HOME
   - wget https://github.com/alecthomas/gometalinter/releases/download/v${GOMETALINTER_VER}/gometalinter-${GOMETALINTER_VER}-linux-amd64.tar.gz
