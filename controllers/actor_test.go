@@ -86,13 +86,13 @@ func TestActorHandler(t *testing.T) {
 
 	testStrings(t, respData,
 		[]stringTest{
-			stringTest{"id", "https://www.example.com/actor"},
-			stringTest{"type", "Application"},
-			stringTest{"followers", "https://www.example.com/followers"},
-			stringTest{"following", "https://www.example.com/following"},
-			stringTest{"url", "https://www.example.com/actor"},
-			stringTest{"inbox", "https://www.example.com/inbox"},
-			stringTest{"outbox", "https://www.example.com/outbox"},
+			{"id", "https://www.example.com/actor"},
+			{"type", "Application"},
+			{"followers", "https://www.example.com/followers"},
+			{"following", "https://www.example.com/following"},
+			{"url", "https://www.example.com/actor"},
+			{"inbox", "https://www.example.com/inbox"},
+			{"outbox", "https://www.example.com/outbox"},
 		},
 	)
 

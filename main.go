@@ -4,11 +4,11 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/go-chi/chi"
-	"github.com/go-chi/chi/middleware"
 	"github.com/Koshroy/turnover/controllers"
 	"github.com/Koshroy/turnover/keystore"
 	mware "github.com/Koshroy/turnover/middleware"
+	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
 )
 
 func main() {
