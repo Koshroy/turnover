@@ -1,6 +1,6 @@
 turnover
 ========
 
-![Build Status](https://travis-ci.org/Koshroy/turnover.svg?branch=master)
+![Build Status of Master](https://travis-ci.org/Koshroy/turnover.svg?branch=master)
 
 An ActivityPub relay.
