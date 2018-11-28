@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/koshroy/turnover/keystore"
+	"github.com/Koshroy/turnover/keystore"
 )
 
 // Actor is the controller logic for the /actor endpoint

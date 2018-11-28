@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/koshroy/turnover/keystore"
+	"github.com/Koshroy/turnover/keystore"
 )
 
 type stringTest struct {

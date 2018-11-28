@@ -1,4 +1,4 @@
-module github.com/koshroy/turnover
+module github.com/Koshroy/turnover
 
 require (
 	github.com/BurntSushi/toml v0.3.1

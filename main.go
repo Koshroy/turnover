@@ -6,9 +6,9 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
-	"github.com/koshroy/turnover/controllers"
-	"github.com/koshroy/turnover/keystore"
-	mware "github.com/koshroy/turnover/middleware"
+	"github.com/Koshroy/turnover/controllers"
+	"github.com/Koshroy/turnover/keystore"
+	mware "github.com/Koshroy/turnover/middleware"
 )
 
 func main() {
