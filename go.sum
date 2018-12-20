@@ -4,3 +4,7 @@ github.com/go-chi/chi v3.3.3+incompatible h1:KHkmBEMNkwKuK4FdQL7N2wOeB9jnIx7jR5w
 github.com/go-chi/chi v3.3.3+incompatible/go.mod h1:eB3wogJHnLi3x/kFX2A+IbTBlXxmMeXJVKy9tTv1XzQ=
 github.com/piprate/json-gold v0.1.0 h1:n/qHk4il+/cg8CkQCHHN15OblVUwuaVeGKc0znePxHk=
 github.com/piprate/json-gold v0.1.0/go.mod h1:I4H0YIPEHBq7+L5pyfBR551C0ZHyvrC1FfOfHZ77nbE=
+github.com/piprate/json-gold v0.1.1 h1:gEWltb371VE5Uo8FBB+CfQIfLmUVPfcvjcPeml2wLbw=
+github.com/piprate/json-gold v0.1.1/go.mod h1:5EEeMX0Gg1CyQxoy4QRhufCfMSCOvcRAaqwkrn6NqqY=
+github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 h1:J9b7z+QKAmPf4YLrFg6oQUotqHQeUNWwkvo7jZp1GLU=
+github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35/go.mod h1:prYjPmNq4d1NPVmpShWobRqXY3q7Vp+80DqgxxUrUIA=

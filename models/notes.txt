@@ -1,0 +1,9 @@
+Inbox controller
+0. Expand the Activity payload
+1. Verify correct content-type of request
+2. Check if "object" field exists (should be taken care of by unmarshaler)
+3. Check if ID is specified
+   3.1 If ID is not specified, then activity is "transient"
+   3.2 If ID is specifically null, then this is illegal.
+4. Validate "type" field of Activity
+5. Deref and verify ID
