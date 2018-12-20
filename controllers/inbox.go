@@ -28,6 +28,7 @@ var ErrNullID = errors.New("activity has null id")
 
 // ErrUnsupportedActivityType is returned when the activity
 // contains a type that is not Follow, Create, Read, Update, Delete, or Unfollow
+// or is a multi-type activity
 var ErrUnsupportedActivityType = errors.New("unsupported activity type")
 
 // Inbox is a controller that controls the Inbox endpoint
@@ -96,18 +97,23 @@ func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
 	}
 
 	// raw activity must have @type or else it would not have expanded properly
-	aType := raw["@type"]
-	// if aType != followIRI &&
-	// 	aType != createIRI &&
-	// 	aType != updateIRI &&
-	// 	aType != readIRI &&
-	// 	aType != deleteIRI &&
-	// 	aType != unfollowIRI {
-	// 	return nil, ErrUnsupportedActivityType
-	// }
+	aTypeRaw := raw["@type"]
+	aType, typeOk := aTypeRaw.([]interface{})
+	if !typeOk {
+		return nil, ErrUnsupportedActivityType
+	}
+
+	if len(aType) != 1 {
+		// we do not support multi-type activities
+		return nil, ErrUnsupportedActivityType
+	}
+	firstType, typeOk := aType[0].(string)
+	if !typeOk {
+		return nil, ErrUnsupportedActivityType
+	}
 
 	typeStr := ""
-	switch aType {
+	switch firstType {
 	case followIRI:
 		typeStr = "follow"
 	case createIRI:
