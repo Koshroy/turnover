@@ -123,7 +123,7 @@ func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
 		
 	}
 
-	return &Activity{
+	return &models.Activity{
 		Type: typeStr,
 		
 	}, nil
