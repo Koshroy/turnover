@@ -120,11 +120,10 @@ func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
 		typeStr = "unfollow"
 	default:
 		return nil, ErrUnsupportedActivityType
-		
+
 	}
 
 	return &models.Activity{
 		Type: typeStr,
-		
 	}, nil
 }
