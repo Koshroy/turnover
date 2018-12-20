@@ -108,10 +108,12 @@ func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
 
 	typeStr := ""
 	switch aType {
+	case followIRI:
+		typeStr = "follow"
 	case createIRI:
 		typeStr = "create"
 	case updateIRI:
-		typeStr = "follow"
+		typeStr = "update"
 	case readIRI:
 		typeStr = "read"
 	case deleteIRI:
