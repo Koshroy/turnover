@@ -77,13 +77,12 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	for _, rawActivity := range expanded {
 		activity, typeOk := rawActivity.(map[string]interface{})
 		if !typeOk {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
-			_, err := w.Write([]byte(err.Error()))
-			if err != nil {
+			_, writeErr := w.Write([]byte(err.Error()))
+			if writeErr != nil {
 				log.Printf("error writing response: %v\n", err)
 			}
 			return
@@ -91,8 +90,8 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hydrated, err := hydrateActivity(activity)
 		if err != nil {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
-			_, err := w.Write([]byte(err.Error()))
-			if err != nil {
+			_, writeErr := w.Write([]byte(err.Error()))
+			if writeErr != nil {
 				log.Printf("error writing response: %v\n", err)
 			}
 			return

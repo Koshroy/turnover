@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	// "encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
