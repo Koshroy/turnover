@@ -3,9 +3,9 @@ package controllers
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 
 	"github.com/Koshroy/turnover/models"
 	"github.com/piprate/json-gold/ld"
@@ -20,27 +20,30 @@ const readIRI = "https://www.w3.org/ns/activitystreams#Read"
 const updateIRI = "https://www.w3.org/ns/activitystreams#Update"
 const deleteIRI = "https://www.w3.org/ns/activitystreams#Delete"
 
-// ErrNoObject is returned when an activity has no Object field
-var ErrNoObject = errors.New("no object field found in activity")
-
-// ErrNullID is returned when the activity has a null Id field
-var ErrNullID = errors.New("activity has null id")
+const actorIRI = "https://www.w3.org/ns/activitystreams#Actor"
+const targetIRI = "https://www.w3.org/ns/activitystreams#Target"
+const originIRI = "https://www.w3.org/ns/activitystreams#Origin"
+const instrumentIRI = "https://www.w3.org/ns/activitystreams#Instrument"
 
 // ErrUnsupportedActivityType is returned when the activity
 // contains a type that is not Follow, Create, Read, Update, Delete, or Unfollow
 // or is a multi-type activity
 var ErrUnsupportedActivityType = errors.New("unsupported activity type")
 
+// ErrNullIDUnsupported is returned when the ID is specifically missing or set to null
+var ErrNullIDUnsupported = errors.New("activity id cannot be null or missing")
+
 // Inbox is a controller that controls the Inbox endpoint
 type Inbox struct {
-	whitelist []string
-	loader    *ld.RFC7324CachingDocumentLoader
-	proc      *ld.JsonLdProcessor
-	opts      *ld.JsonLdOptions
+	whitelist      []string
+	loader         *ld.RFC7324CachingDocumentLoader
+	proc           *ld.JsonLdProcessor
+	opts           *ld.JsonLdOptions
+	scheme, domain string
 }
 
 // NewInbox creates a new Inbox controller
-func NewInbox(whitelist []string) *Inbox {
+func NewInbox(whitelist []string, scheme, domain string) *Inbox {
 	loader := ld.NewRFC7324CachingDocumentLoader(nil)
 	opts := ld.NewJsonLdOptions("")
 	opts.DocumentLoader = loader
@@ -50,6 +53,8 @@ func NewInbox(whitelist []string) *Inbox {
 		loader:    loader,
 		proc:      ld.NewJsonLdProcessor(),
 		opts:      opts,
+		scheme:    scheme,
+		domain:    domain,
 	}
 }
 
@@ -67,7 +72,6 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnsupportedMediaType)
 		return
 	}
-	fmt.Printf("raw: %v\n", raw)
 
 	expanded, err := i.proc.Expand(raw, i.opts)
 	if err != nil {
@@ -75,15 +79,13 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("expanded: %v\n", expanded)
-
 	for _, rawActivity := range expanded {
 		activity, typeOk := rawActivity.(map[string]interface{})
 		if !typeOk {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
 			return
 		}
-		_, err = hydrateActivity(activity)
+		_, err := hydrateActivity(activity)
 		if err != nil {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
 			return
@@ -92,46 +94,48 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
-	if _, ok := raw[objectIRI]; !ok {
-		return nil, ErrNoObject
+	// This function is kinda jank because it marshals a raw interface
+	// then unmarshals it into a models.Activity type. There is probably
+	// a better way to do this, but rather than write complicated code to do that
+	// for now we'll do this. If this ends up being a speed bottleneck, we can
+	// write the bespoke logic for it
+
+	activityBytes, err := json.Marshal(raw)
+	if err != nil {
+		// TODO: let's wrap this error to make this a better function
+		return nil, err
 	}
 
-	// raw activity must have @type or else it would not have expanded properly
-	aTypeRaw := raw["@type"]
-	aType, typeOk := aTypeRaw.([]interface{})
-	if !typeOk {
+	var activity models.Activity
+	err = json.Unmarshal(activityBytes, &activity)
+	if err != nil {
 		return nil, ErrUnsupportedActivityType
 	}
 
-	if len(aType) != 1 {
-		// we do not support multi-type activities
-		return nil, ErrUnsupportedActivityType
-	}
-	firstType, typeOk := aType[0].(string)
-	if !typeOk {
-		return nil, ErrUnsupportedActivityType
-	}
-
-	typeStr := ""
-	switch firstType {
-	case followIRI:
-		typeStr = "follow"
-	case createIRI:
-		typeStr = "create"
-	case updateIRI:
-		typeStr = "update"
-	case readIRI:
-		typeStr = "read"
-	case deleteIRI:
-		typeStr = "delete"
-	case unfollowIRI:
-		typeStr = "unfollow"
-	default:
-		return nil, ErrUnsupportedActivityType
-
+	for _, activityType := range activity.Type {
+		if activityType != followIRI &&
+			activityType != createIRI &&
+			activityType != updateIRI &&
+			activityType != readIRI &&
+			activityType != deleteIRI &&
+			activityType != unfollowIRI {
+			return nil, ErrUnsupportedActivityType
+		}
 	}
 
-	return &models.Activity{
-		Type: typeStr,
-	}, nil
+	// We disallow null IDs
+	if activity.ID == nil {
+		return nil, ErrNullIDUnsupported
+	}
+
+	return &activity, nil
+}
+
+func (i Inbox) routeURL(path, fragment string) *url.URL {
+	return &url.URL{
+		Scheme:   i.scheme,
+		Host:     i.domain,
+		Path:     path,
+		Fragment: fragment,
+	}
 }

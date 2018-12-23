@@ -20,14 +20,14 @@ const followJSON = `{
         "id": "http://notes.example.com/1",
         "attributedTo": "http://john.example.org",
         "content": "My note"
-    }    
+    }
 }
 `
 
 func TestInboxHandler(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
-	i := NewInbox([]string{})
+	i := NewInbox([]string{}, "https", "example.com")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(followJSON))
 	w := httptest.NewRecorder()
@@ -39,18 +39,4 @@ func TestInboxHandler(t *testing.T) {
 		t.Errorf("expected 200 OK got %d", resp.StatusCode)
 		t.FailNow()
 	}
-
-	// bodyBytes, err := ioutil.ReadAll(resp.Body)
-	// if err != nil {
-	// 	t.Errorf("error reading bytes from response %v", err)
-	// 	t.FailNow()
-	// }
-
-	// var respData map[string]interface{}
-
-	// err = json.Unmarshal(bodyBytes, &respData)
-	// if err != nil {
-	// 	t.Error("could not unmarshal response data")
-	// 	t.FailNow()
-	// }
 }
