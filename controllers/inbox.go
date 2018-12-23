@@ -41,8 +41,8 @@ type Inbox struct {
 }
 
 // NewInbox creates a new Inbox controller
-func NewInbox(whitelist []string, scheme, domain string) *Inbox {
-	loader := ld.NewRFC7324CachingDocumentLoader(nil)
+func NewInbox(whitelist []string, scheme, domain string, client *http.Client) *Inbox {
+	loader := ld.NewRFC7324CachingDocumentLoader(client)
 	opts := ld.NewJsonLdOptions("")
 	opts.DocumentLoader = loader
 

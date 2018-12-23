@@ -1,11 +1,14 @@
 package controllers
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 const followJSON = `{
@@ -88,6 +91,43 @@ const createNoteJSON = `{
 }
 `
 
+type mockTransport struct {
+	Fallback http.RoundTripper
+}
+
+func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Host != "www.w3.org" && req.URL.Path != "/ns/activitystreams" {
+		return m.Fallback.RoundTrip(req)
+	}
+
+	f, err := os.Open("./testdata/activitystreams.jsonld")
+	if err != nil {
+		return nil, fmt.Errorf("error opening testdata for mock transport: %v", err)
+	}
+
+	s, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("error getting filesize for mock transport: %v", err)
+	}
+
+	header := make(http.Header)
+	header.Add("Content-Length", fmt.Sprintf("%d", s.Size()))
+	header.Add("Content-Type", "application/ld+json")
+	header.Add("Date", s.ModTime().Format(time.RFC1123))
+
+	return &http.Response{
+		Status:        http.StatusText(http.StatusOK),
+		StatusCode:    http.StatusOK,
+		Proto:         req.Proto,
+		ProtoMajor:    req.ProtoMajor,
+		ProtoMinor:    req.ProtoMinor,
+		ContentLength: s.Size(),
+		Request:       req,
+		Header:        header,
+		Body:          f,
+	}, nil
+}
+
 type respTest struct {
 	JSONInput  string
 	StatusCode int
@@ -118,7 +158,10 @@ func testResp(t *testing.T, inbox *Inbox, tests []respTest) {
 func TestInboxHandler(t *testing.T) {
 	t.Parallel()
 
-	i := NewInbox([]string{}, "https", "www.example.com")
+	mockClient := &http.Client{
+		Transport: &mockTransport{Fallback: http.DefaultTransport},
+	}
+	i := NewInbox([]string{}, "https", "www.example.com", mockClient)
 
 	testResp(t, i, []respTest{
 		{followJSON, http.StatusOK, "success_follow_json"},
