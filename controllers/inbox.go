@@ -12,18 +12,12 @@ import (
 )
 
 const maxActivitySz = 16 * (1 << 20) // 16 MB
-const objectIRI = "https://www.w3.org/ns/activitystreams#object"
 const followIRI = "https://www.w3.org/ns/activitystreams#Follow"
 const unfollowIRI = "https://www.w3.org/ns/activitystreams#Unfollow"
 const createIRI = "https://www.w3.org/ns/activitystreams#Create"
 const readIRI = "https://www.w3.org/ns/activitystreams#Read"
 const updateIRI = "https://www.w3.org/ns/activitystreams#Update"
 const deleteIRI = "https://www.w3.org/ns/activitystreams#Delete"
-
-const actorIRI = "https://www.w3.org/ns/activitystreams#Actor"
-const targetIRI = "https://www.w3.org/ns/activitystreams#Target"
-const originIRI = "https://www.w3.org/ns/activitystreams#Origin"
-const instrumentIRI = "https://www.w3.org/ns/activitystreams#Instrument"
 
 // ErrUnsupportedActivityType is returned when the activity
 // contains a type that is not Follow, Create, Read, Update, Delete, or Unfollow
@@ -32,6 +26,9 @@ var ErrUnsupportedActivityType = errors.New("unsupported activity type")
 
 // ErrNullIDUnsupported is returned when the ID is specifically missing or set to null
 var ErrNullIDUnsupported = errors.New("activity id cannot be null or missing")
+
+// ErrIncorrectFollow is returned when a non-inbox endpoint is attempted to be followed
+var ErrIncorrectFollow = errors.New("cannot follow this resource")
 
 // Inbox is a controller that controls the Inbox endpoint
 type Inbox struct {
@@ -85,10 +82,22 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
 			return
 		}
-		_, err := hydrateActivity(activity)
+		hydrated, err := hydrateActivity(activity)
 		if err != nil {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
 			return
+		}
+
+		for _, hydratedType := range hydrated.Type {
+			if hydratedType == followIRI {
+				for _, objectActivity := range hydrated.Object {
+					if objectActivity.ID == nil ||
+						(*objectActivity.ID != i.routeURL("/inbox", "").String()) {
+						w.WriteHeader(http.StatusMethodNotAllowed)
+						return
+					}
+				}
+			}
 		}
 	}
 }
