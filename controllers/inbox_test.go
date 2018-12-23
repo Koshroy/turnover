@@ -2,7 +2,7 @@ package controllers
 
 import (
 	// "encoding/json"
-	// "io/ioutil"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,8 +17,8 @@ const followJSON = `{
     "object": {
         "summary": "Follow request",
         "type": "Inbox",
-        "id": "http://www.example.com/inbox",
-        "attributedTo": "http://john.example.org",
+        "id": "https://www.example.com/inbox",
+        "attributedTo": "https://john.example.org"
     }
 }
 `
@@ -31,8 +31,8 @@ const emptyIDFollowJSON = `{
     "object": {
         "summary": "Follow request",
         "type": "Inbox",
-        "id": "http://www.example.com/inbox",
-        "attributedTo": "http://john.example.org",
+        "id": "https://www.example.com/inbox",
+        "attributedTo": "https://john.example.org"
     }
 }
 `
@@ -45,8 +45,8 @@ const nullIDFollowJSON = `{
     "object": {
         "summary": "Follow request",
         "type": "Inbox",
-        "id": "http://www.example.com/inbox",
-        "attributedTo": "http://john.example.org",
+        "id": "https://www.example.com/inbox",
+        "attributedTo": "https://john.example.org"
     }
 }
 `
@@ -58,8 +58,8 @@ const missingIDFollowJSON = `{
     "object": {
         "summary": "Follow request",
         "type": "Inbox",
-        "id": "http://www.example.com/inbox",
-        "attributedTo": "http://john.example.org",
+        "id": "https://www.example.com/inbox",
+        "attributedTo": "https://john.example.org"
     }
 }
 `
@@ -67,9 +67,24 @@ const missingIDFollowJSON = `{
 const noteJSON = `{
     "@context": "https://www.w3.org/ns/activitystreams",
     "@type": "Note",
+    "id": "https://activities.example.org/2",
     "actor": "https://sally.example.org",
     "object": {
-        "id": "http://notes.example.com/1",
+        "id": "https://notes.example.com/1"
+    }
+}
+`
+
+const createNoteJSON = `{
+    "@context": "https://www.w3.org/ns/activitystreams",
+    "@type": "Create",
+    "id": "https://activities.example.org/3",
+    "actor": "https://sally.otherexample.org",
+    "object": {
+        "summary": "Note",
+        "type": "Note",
+        "id": "https://sally.otherexample.org/note/1",
+        "attributedTo": "https://john.otherexample.org"
     }
 }
 `
@@ -90,6 +105,10 @@ func testResp(t *testing.T, inbox *Inbox, tests []respTest) {
 			resp := w.Result()
 			if resp.StatusCode != tt.StatusCode {
 				t.Errorf("expected %d got %d", tt.StatusCode, resp.StatusCode)
+				respBytes, err := ioutil.ReadAll(resp.Body)
+				if err == nil {
+					t.Logf("response body: %v\n", string(respBytes))
+				}
 				t.FailNow()
 			}
 
@@ -100,7 +119,7 @@ func testResp(t *testing.T, inbox *Inbox, tests []respTest) {
 func TestInboxHandler(t *testing.T) {
 	t.Parallel()
 
-	i := NewInbox([]string{}, "https", "example.com")
+	i := NewInbox([]string{}, "https", "www.example.com")
 
 	testResp(t, i, []respTest{
 		{followJSON, http.StatusOK, "success_follow_json"},
@@ -108,6 +127,7 @@ func TestInboxHandler(t *testing.T) {
 		{nullIDFollowJSON, http.StatusUnsupportedMediaType, "failure_follow_json_null_id"},
 		{missingIDFollowJSON, http.StatusUnsupportedMediaType, "failure_follow_json_missing_id"},
 		{noteJSON, http.StatusUnsupportedMediaType, "failure_note_json"},
+		{createNoteJSON, http.StatusOK, "success_create_note_json"},
 	})
 
 }

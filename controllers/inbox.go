@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 
@@ -76,24 +77,38 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+
 	for _, rawActivity := range expanded {
 		activity, typeOk := rawActivity.(map[string]interface{})
 		if !typeOk {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
+			_, err := w.Write([]byte(err.Error()))
+			if err != nil {
+				log.Printf("error writing response: %v\n", err)
+			}
 			return
 		}
 		hydrated, err := hydrateActivity(activity)
 		if err != nil {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
+			_, err := w.Write([]byte(err.Error()))
+			if err != nil {
+				log.Printf("error writing response: %v\n", err)
+			}
 			return
 		}
 
+		myInboxURI := i.routeURL("/inbox", "").String()
 		for _, hydratedType := range hydrated.Type {
-			if hydratedType == followIRI {
+			if hydratedType == followIRI || hydratedType == unfollowIRI {
 				for _, objectActivity := range hydrated.Object {
 					if objectActivity.ID == nil ||
-						(*objectActivity.ID != i.routeURL("/inbox", "").String()) {
+						(*objectActivity.ID != myInboxURI) {
 						w.WriteHeader(http.StatusMethodNotAllowed)
+						_, err := w.Write([]byte("follows and unfollows can only be to " + myInboxURI))
+						if err != nil {
+							log.Printf("error writing response: %v\n", err)
+						}
 						return
 					}
 				}
