@@ -10,7 +10,9 @@ func (t *mockTask) ID() TaskID {
 	return t.TaskID
 }
 
-func (t *mockTask) Run() {}
+func (t *mockTask) Run() bool {
+	return true
+}
 
 func TestEnqueueWorkingMemQueue(t *testing.T) {
 	t.Parallel()
