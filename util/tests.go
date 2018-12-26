@@ -7,10 +7,12 @@ import (
 	"time"
 )
 
+// MockTransport implements a mock HTTP RoundTripper for test use
 type MockTransport struct {
 	Fallback http.RoundTripper
 }
 
+// RoundTrip returns a response in the mock transport for a given request
 func (m *MockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Host != "www.w3.org" && req.URL.Path != "/ns/activitystreams" {
 		return m.Fallback.RoundTrip(req)
