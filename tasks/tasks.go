@@ -6,7 +6,7 @@ type TaskID string
 // Task is an asynch task
 type Task interface {
 	ID() TaskID
-	Run() bool
+	Run() error
 }
 
 // Queuer can enqueue and dequeue tasks

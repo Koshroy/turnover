@@ -20,15 +20,15 @@ func (f *Forward) ID() TaskID {
 }
 
 // Run forwards the Activity to the Target
-func (f *Forward) Run() bool {
+func (f *Forward) Run() error {
 	reader := bytes.NewReader(f.Activity)
 	resp, err := f.Client.Post(f.Target.String(), "application/ld+json", reader)
 	if err != nil {
-		return false
+		return err
 	}
 	if resp.StatusCode > 399 {
-		return false
+		return err
 	}
 	_ = resp.Body.Close()
-	return true
+	return nil
 }
