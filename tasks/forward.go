@@ -11,7 +11,7 @@ type Forward struct {
 	TaskID   TaskID
 	Activity []byte
 	Target   url.URL
-	client   *http.Client
+	Client   *http.Client
 }
 
 // ID returns the ID of the Forward task
@@ -22,12 +22,13 @@ func (f *Forward) ID() TaskID {
 // Run forwards the Activity to the Target
 func (f *Forward) Run() bool {
 	reader := bytes.NewReader(f.Activity)
-	resp, err := f.client.Post(f.Target.String(), "application/json+ld", reader)
+	resp, err := f.Client.Post(f.Target.String(), "application/ld+json", reader)
 	if err != nil {
 		return false
 	}
 	if resp.StatusCode > 399 {
 		return false
 	}
+	_ = resp.Body.Close()
 	return true
 }
