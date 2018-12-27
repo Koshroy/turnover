@@ -29,7 +29,7 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("error reading from body: %v", err)
 	}
 
-	if bytes.Compare(reqBody, m.ExpectedReq) != 0 {
+	if !bytes.Equal(reqBody, m.ExpectedReq) {
 		return nil, fmt.Errorf("expected %v got %v", m.ExpectedReq, reqBody)
 	}
 
