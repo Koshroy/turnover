@@ -4,18 +4,20 @@ import (
 	"bytes"
 	"net/http"
 	"net/url"
+
+	"github.com/gofrs/uuid"
 )
 
 // Forward is a task which forwards a message
 type Forward struct {
-	TaskID   TaskID
+	TaskID   uuid.UUID
 	Activity []byte
 	Target   url.URL
 	Client   *http.Client
 }
 
 // ID returns the ID of the Forward task
-func (f *Forward) ID() TaskID {
+func (f *Forward) ID() uuid.UUID {
 	return f.TaskID
 }
 

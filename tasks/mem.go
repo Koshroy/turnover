@@ -1,36 +1,40 @@
 package tasks
 
-import "sync"
+import (
+	"github.com/gofrs/uuid"
+
+	"sync"
+)
 
 // MemoryQueue represents a task queue in memory
 type MemoryQueue struct {
-	waiting chan TaskID
+	waiting chan uuid.UUID
 
 	finishedLock sync.RWMutex
-	finished     map[TaskID]bool
+	finished     map[uuid.UUID]bool
 
 	progressLock sync.RWMutex
-	progress     map[TaskID]bool
+	progress     map[uuid.UUID]bool
 }
 
 // NewMemoryQueue returns a new memory queue
 func NewMemoryQueue() *MemoryQueue {
 	return &MemoryQueue{
-		waiting:  make(chan TaskID, 1),
-		finished: make(map[TaskID]bool),
-		progress: make(map[TaskID]bool),
+		waiting:  make(chan uuid.UUID, 1),
+		finished: make(map[uuid.UUID]bool),
+		progress: make(map[uuid.UUID]bool),
 	}
 }
 
 // Enqueue enques a task
-func (m *MemoryQueue) Enqueue(taskID TaskID) bool {
+func (m *MemoryQueue) Enqueue(taskID uuid.UUID) bool {
 	m.waiting <- taskID
 	return true
 }
 
-// Working returns a TaskID from the list of waiting tasks and sets
+// Working returns a uuid.UUID from the list of waiting tasks and sets
 // it into the working state
-func (m *MemoryQueue) Working() TaskID {
+func (m *MemoryQueue) Working() uuid.UUID {
 	m.progressLock.Lock()
 	defer m.progressLock.Unlock()
 
@@ -39,12 +43,12 @@ func (m *MemoryQueue) Working() TaskID {
 	return tID
 }
 
-// ListWorking returns a slice of all TaskIDs in the working state
-func (m *MemoryQueue) ListWorking() []TaskID {
+// ListWorking returns a slice of all uuid.UUIDs in the working state
+func (m *MemoryQueue) ListWorking() []uuid.UUID {
 	m.progressLock.RLock()
 	defer m.progressLock.RUnlock()
 
-	tasks := make([]TaskID, 0)
+	tasks := make([]uuid.UUID, 0)
 	for tID := range m.progress {
 		tasks = append(tasks, tID)
 	}
@@ -52,7 +56,7 @@ func (m *MemoryQueue) ListWorking() []TaskID {
 }
 
 // Finish marks a taskID as finished if it is in progress already
-func (m *MemoryQueue) Finish(taskID TaskID) bool {
+func (m *MemoryQueue) Finish(taskID uuid.UUID) bool {
 	m.progressLock.RLock()
 	if _, ok := m.progress[taskID]; !ok {
 		m.progressLock.RUnlock()
@@ -68,12 +72,12 @@ func (m *MemoryQueue) Finish(taskID TaskID) bool {
 	return true
 }
 
-// ListFinished returns a slice of all TaskIDs in the finished state
-func (m *MemoryQueue) ListFinished() []TaskID {
+// ListFinished returns a slice of all uuid.UUIDs in the finished state
+func (m *MemoryQueue) ListFinished() []uuid.UUID {
 	m.finishedLock.RLock()
 	defer m.finishedLock.RUnlock()
 
-	tasks := make([]TaskID, 0)
+	tasks := make([]uuid.UUID, 0)
 	for tID := range m.finished {
 		tasks = append(tasks, tID)
 	}
@@ -82,19 +86,19 @@ func (m *MemoryQueue) ListFinished() []TaskID {
 
 // MemoryStorage is an in-memory task storer
 type MemoryStorage struct {
-	taskStorage map[TaskID]Task
+	taskStorage map[uuid.UUID]Task
 	sync.RWMutex
 }
 
 // NewMemoryStorage returns a new MemoryStorage instance
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
-		taskStorage: make(map[TaskID]Task),
+		taskStorage: make(map[uuid.UUID]Task),
 	}
 }
 
-// Get returns a task with a given TaskID
-func (s *MemoryStorage) Get(taskID TaskID) (Task, bool) {
+// Get returns a task with a given uuid.UUID
+func (s *MemoryStorage) Get(taskID uuid.UUID) (Task, bool) {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -103,7 +107,7 @@ func (s *MemoryStorage) Get(taskID TaskID) (Task, bool) {
 }
 
 // Put puts a task with the given taskID
-func (s *MemoryStorage) Put(task Task, taskID TaskID) bool {
+func (s *MemoryStorage) Put(task Task, taskID uuid.UUID) bool {
 	s.Lock()
 	defer s.Unlock()
 

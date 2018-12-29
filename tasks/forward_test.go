@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/gofrs/uuid"
 )
 
 type mockTransport struct {
@@ -56,6 +58,12 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestForwardTask(t *testing.T) {
 	t.Parallel()
 
+	tID, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error creating taskID: %v", err)
+		t.FailNow()
+	}
+
 	payload := []byte(`{"key":"value"}`)
 	mockClient := &http.Client{
 		Transport: &mockTransport{
@@ -63,7 +71,7 @@ func TestForwardTask(t *testing.T) {
 		},
 	}
 	task := &Forward{
-		TaskID:   "a",
+		TaskID:   tID,
 		Activity: []byte(payload),
 		Target: url.URL{
 			Scheme:   "https",
@@ -74,12 +82,12 @@ func TestForwardTask(t *testing.T) {
 		Client: mockClient,
 	}
 
-	if task.ID() != "a" {
-		t.Errorf("task ID expected a got %s", task.ID())
+	if !uuidEqual(task.ID(), tID) {
+		t.Errorf("task ID expected %s got %s", tID, task.ID())
 		t.FailNow()
 	}
 
-	err := task.Run()
+	err = task.Run()
 	if err != nil {
 		t.Errorf("task failed to run, received error: %v", err)
 		t.FailNow()

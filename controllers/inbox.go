@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	"github.com/Koshroy/turnover/models"
+	"github.com/Koshroy/turnover/tasks"
 	"github.com/piprate/json-gold/ld"
 )
 
@@ -38,10 +39,16 @@ type Inbox struct {
 	proc           *ld.JsonLdProcessor
 	opts           *ld.JsonLdOptions
 	scheme, domain string
+	queuer         tasks.Queuer
+	storer         tasks.Storer
 }
 
 // NewInbox creates a new Inbox controller
-func NewInbox(whitelist []string, scheme, domain string, client *http.Client) *Inbox {
+func NewInbox(
+	whitelist []string,
+	scheme, domain string,
+	client *http.Client,
+) *Inbox {
 	loader := ld.NewRFC7324CachingDocumentLoader(client)
 	opts := ld.NewJsonLdOptions("")
 	opts.DocumentLoader = loader

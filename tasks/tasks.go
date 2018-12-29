@@ -1,25 +1,24 @@
 package tasks
 
-// TaskID is the ID type of a task
-type TaskID string
+import "github.com/gofrs/uuid"
 
 // Task is an asynch task
 type Task interface {
-	ID() TaskID
+	ID() uuid.UUID
 	Run() error
 }
 
 // Queuer can enqueue and dequeue tasks
 type Queuer interface {
-	Enqueue(taskID TaskID) bool
-	Working() TaskID
-	ListWorking() []TaskID
-	Finish(taskID TaskID) bool
-	ListFinished() []TaskID
+	Enqueue(taskID uuid.UUID) bool
+	Working() uuid.UUID
+	ListWorking() []uuid.UUID
+	Finish(taskID uuid.UUID) bool
+	ListFinished() []uuid.UUID
 }
 
 // Storer can load and store task data
 type Storer interface {
-	Get(taskID TaskID) (Task, bool)
-	Put(task Task, taskID TaskID) bool
+	Get(taskID uuid.UUID) (Task, bool)
+	Put(task Task, taskID uuid.UUID) bool
 }

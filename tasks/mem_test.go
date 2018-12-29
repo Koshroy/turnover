@@ -1,12 +1,16 @@
 package tasks
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gofrs/uuid"
+)
 
 type mockTask struct {
-	TaskID TaskID
+	TaskID uuid.UUID
 }
 
-func (t *mockTask) ID() TaskID {
+func (t *mockTask) ID() uuid.UUID {
 	return t.TaskID
 }
 
@@ -16,21 +20,41 @@ func (t *mockTask) Run() error {
 
 func TestEnqueueWorkingMemQueue(t *testing.T) {
 	t.Parallel()
+
+	tID, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error generating task id: %v", err)
+		t.FailNow()
+	}
+
 	queue := NewMemoryQueue()
-	queue.Enqueue("a")
-	tID := queue.Working()
-	if tID != "a" {
-		t.Errorf("expected Task ID a found %s", tID)
+	queue.Enqueue(tID)
+	workingTID := queue.Working()
+	if !uuidEqual(tID, workingTID) {
+		t.Errorf("expected Task ID %s found %s", tID, workingTID)
 		t.FailNow()
 	}
 }
 
 func TestEnqueueWorkingListMemQueue(t *testing.T) {
 	t.Parallel()
+
+	tID1, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error generating task id: %v", err)
+		t.FailNow()
+	}
+
+	tID2, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error generating task id: %v", err)
+		t.FailNow()
+	}
+
 	queue := NewMemoryQueue()
-	queue.Enqueue("a")
+	queue.Enqueue(tID1)
 	_ = queue.Working()
-	queue.Enqueue("b")
+	queue.Enqueue(tID2)
 	_ = queue.Working()
 
 	tIDs := queue.ListWorking()
@@ -42,38 +66,64 @@ func TestEnqueueWorkingListMemQueue(t *testing.T) {
 
 func TestFinishMemQueue(t *testing.T) {
 	t.Parallel()
-	queue := NewMemoryQueue()
-	queue.Enqueue("a")
-	_ = queue.Working()
-	queue.Enqueue("b")
-	tID := queue.Working()
-	if tID != "b" {
-		t.Errorf("expected to get working task a, got: %s", tID)
+
+	tID1, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error generating task id: %v", err)
 		t.FailNow()
 	}
 
-	success := queue.Finish(tID)
+	tID2, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error generating task id: %v", err)
+		t.FailNow()
+	}
+
+	queue := NewMemoryQueue()
+	queue.Enqueue(tID1)
+	_ = queue.Working()
+	queue.Enqueue(tID2)
+	workingTID := queue.Working()
+	if !uuidEqual(workingTID, tID2) {
+		t.Errorf("expected to get working task %s, got: %s", tID2, workingTID)
+		t.FailNow()
+	}
+
+	success := queue.Finish(workingTID)
 	if !success {
-		t.Errorf("could not successfully finish %s", tID)
+		t.Errorf("could not successfully finish %s", workingTID)
 		t.FailNow()
 	}
 }
 
 func TestFinishListMemQueue(t *testing.T) {
 	t.Parallel()
-	queue := NewMemoryQueue()
-	queue.Enqueue("a")
-	tID := queue.Working()
-	queue.Enqueue("b")
-	_ = queue.Working()
-	if tID != "a" {
-		t.Errorf("expected to get working task a, got: %s", tID)
+
+	tID1, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error generating task id: %v", err)
 		t.FailNow()
 	}
 
-	success := queue.Finish(tID)
+	tID2, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error generating task id: %v", err)
+		t.FailNow()
+	}
+
+	queue := NewMemoryQueue()
+	queue.Enqueue(tID1)
+	workingTID := queue.Working()
+	queue.Enqueue(tID2)
+	_ = queue.Working()
+	if !uuidEqual(tID1, workingTID) {
+		t.Errorf("expected to get working task %s, got: %s", tID1, workingTID)
+		t.FailNow()
+	}
+
+	success := queue.Finish(workingTID)
 	if !success {
-		t.Errorf("could not successfully finish %s", tID)
+		t.Errorf("could not successfully finish %s", workingTID)
 		t.FailNow()
 	}
 
@@ -86,7 +136,14 @@ func TestFinishListMemQueue(t *testing.T) {
 
 func TestMemStorage(t *testing.T) {
 	t.Parallel()
-	task := &mockTask{TaskID: "a"}
+
+	tID, err := uuid.NewV4()
+	if err != nil {
+		t.Errorf("error generating task id: %v", err)
+		t.FailNow()
+	}
+
+	task := &mockTask{TaskID: tID}
 	store := NewMemoryStorage()
 
 	res := store.Put(task, task.ID())
@@ -100,8 +157,8 @@ func TestMemStorage(t *testing.T) {
 		t.Errorf("could not get task with ID %s in store", task.ID())
 		t.FailNow()
 	}
-	if newTask.ID() != "a" {
-		t.Errorf("expected to get task of ID a got ID %s instead", newTask.ID())
+	if !uuidEqual(newTask.ID(), tID) {
+		t.Errorf("expected to get task of ID %s got ID %s instead", tID, newTask.ID())
 		t.FailNow()
 	}
 }
