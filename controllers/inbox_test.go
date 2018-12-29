@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Koshroy/turnover/tasks"
+	"github.com/gofrs/uuid"
 )
 
 const followJSON = `{
@@ -129,6 +132,75 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
+type mockQueuer struct {
+	enqueued map[uuid.UUID]bool
+	finished map[uuid.UUID]bool
+}
+
+func newMockQueuer() *mockQueuer {
+	return &mockQueuer{
+		enqueued: make(map[uuid.UUID]bool),
+		finished: make(map[uuid.UUID]bool),
+	}
+}
+
+func (q *mockQueuer) Enqueue(taskID uuid.UUID) bool {
+	q.enqueued[taskID] = true
+	return true
+}
+
+func (q *mockQueuer) Working() uuid.UUID {
+	for tID := range q.enqueued {
+		return tID
+	}
+
+	return uuid.UUID{}
+}
+
+func (q *mockQueuer) ListWorking() []uuid.UUID {
+	retTIDs := make([]uuid.UUID, 0)
+	for tID := range q.enqueued {
+		retTIDs = append(retTIDs, tID)
+	}
+	return retTIDs
+}
+
+func (q *mockQueuer) Finish(taskID uuid.UUID) bool {
+	q.finished[taskID] = true
+	return true
+}
+
+func (q *mockQueuer) ListFinished() []uuid.UUID {
+	retTIDs := make([]uuid.UUID, 0)
+	for tID := range q.finished {
+		retTIDs = append(retTIDs, tID)
+	}
+	return retTIDs
+}
+
+type mockStorer struct {
+	storage            *tasks.MemoryStorage
+	getCalls, putCalls map[uuid.UUID]bool
+}
+
+func newMockStorer() *mockStorer {
+	return &mockStorer{
+		storage:  tasks.NewMemoryStorage(),
+		getCalls: make(map[uuid.UUID]bool),
+		putCalls: make(map[uuid.UUID]bool),
+	}
+}
+
+func (s *mockStorer) Get(taskID uuid.UUID) (tasks.Task, bool) {
+	s.getCalls[taskID] = true
+	return s.storage.Get(taskID)
+}
+
+func (s *mockStorer) Put(task tasks.Task, taskID uuid.UUID) bool {
+	s.putCalls[taskID] = true
+	return s.storage.Put(task, taskID)
+}
+
 type respTest struct {
 	JSONInput  string
 	StatusCode int
@@ -162,7 +234,9 @@ func TestInboxHandler(t *testing.T) {
 	mockClient := &http.Client{
 		Transport: &mockTransport{Fallback: http.DefaultTransport},
 	}
-	i := NewInbox([]string{}, "https", "www.example.com", mockClient)
+	queuer := newMockQueuer()
+	storer := newMockStorer()
+	i := NewInbox([]string{}, "https", "www.example.com", mockClient, queuer, storer)
 
 	testResp(t, i, []respTest{
 		{followJSON, http.StatusOK, "success_follow_json"},

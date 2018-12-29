@@ -22,3 +22,7 @@ type Storer interface {
 	Get(taskID uuid.UUID) (Task, bool)
 	Put(task Task, taskID uuid.UUID) bool
 }
+
+func NewTaskID() (uuid.UUID, error) {
+	return uuid.NewV4()
+}

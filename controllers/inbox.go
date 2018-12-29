@@ -48,6 +48,8 @@ func NewInbox(
 	whitelist []string,
 	scheme, domain string,
 	client *http.Client,
+	queuer tasks.Queuer,
+	storer tasks.Storer,
 ) *Inbox {
 	loader := ld.NewRFC7324CachingDocumentLoader(client)
 	opts := ld.NewJsonLdOptions("")
@@ -60,6 +62,8 @@ func NewInbox(
 		opts:      opts,
 		scheme:    scheme,
 		domain:    domain,
+		queuer:    queuer,
+		storer:    storer,
 	}
 }
 
@@ -84,6 +88,8 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	followTypes := false
+	hydratedActivities := make([]*models.Activity, 0)
 	for _, rawActivity := range expanded {
 		activity, typeOk := rawActivity.(map[string]interface{})
 		if !typeOk {
@@ -107,6 +113,7 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		myInboxURI := i.routeURL("/inbox", "").String()
 		for _, hydratedType := range hydrated.Type {
 			if hydratedType == followIRI || hydratedType == unfollowIRI {
+				followTypes = true
 				for _, objectActivity := range hydrated.Object {
 					if objectActivity.ID == nil ||
 						(*objectActivity.ID != myInboxURI) {
@@ -118,6 +125,45 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 				}
+			}
+		}
+		hydratedActivities = append(hydratedActivities, hydrated)
+	}
+
+	if !followTypes {
+		for _, activity := range hydratedActivities {
+			taskID, err := tasks.NewTaskID()
+			if err != nil {
+				log.Printf("error generating task ID: %v\n", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				_, writeErr := w.Write([]byte(err.Error()))
+				if writeErr != nil {
+					log.Printf("error writing response: %v\n", err)
+				}
+				continue
+			}
+
+			activityBytes, err := json.Marshal(activity)
+			if err != nil {
+				log.Printf("error marshalling activity: %v\n", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				_, writeErr := w.Write([]byte(err.Error()))
+				if writeErr != nil {
+					log.Printf("error writing response: %v\n", err)
+				}
+				continue
+			}
+
+			// TODO: add forward targets
+			forward := &tasks.Forward{
+				TaskID:   taskID,
+				Activity: activityBytes,
+				Client:   http.DefaultClient,
+			}
+
+			success := i.storer.Put(forward, taskID)
+			if !success {
+				log.Printf("error marshalling activity: %v\n", err)
 			}
 		}
 	}
