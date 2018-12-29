@@ -23,6 +23,7 @@ type Storer interface {
 	Put(task Task, taskID uuid.UUID) bool
 }
 
+// NewTaskID creates a new TaskID
 func NewTaskID() (uuid.UUID, error) {
 	return uuid.NewV4()
 }
