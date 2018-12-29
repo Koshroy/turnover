@@ -178,6 +178,19 @@ func (q *mockQueuer) ListFinished() []uuid.UUID {
 	return retTIDs
 }
 
+func (q *mockQueuer) ListEnqueues() []uuid.UUID {
+	retTIDs := make([]uuid.UUID, 0)
+	for tID := range q.enqueued {
+		retTIDs = append(retTIDs, tID)
+	}
+	return retTIDs
+}
+
+func (q *mockQueuer) Reset() {
+	q.enqueued = make(map[uuid.UUID]bool)
+	q.finished = make(map[uuid.UUID]bool)
+}
+
 type mockStorer struct {
 	storage            *tasks.MemoryStorage
 	getCalls, putCalls map[uuid.UUID]bool
@@ -201,15 +214,35 @@ func (s *mockStorer) Put(task tasks.Task, taskID uuid.UUID) bool {
 	return s.storage.Put(task, taskID)
 }
 
-type respTest struct {
-	JSONInput  string
-	StatusCode int
-	TestName   string
+func (s *mockStorer) Reset() {
+	s.storage = tasks.NewMemoryStorage()
+	s.getCalls = make(map[uuid.UUID]bool)
+	s.putCalls = make(map[uuid.UUID]bool)
 }
 
-func testResp(t *testing.T, inbox *Inbox, tests []respTest) {
+func (s *mockStorer) HasGetCall(taskID uuid.UUID) bool {
+	_, ok := s.getCalls[taskID]
+	return ok
+}
+
+func (s *mockStorer) HasPutCall(taskID uuid.UUID) bool {
+	_, ok := s.putCalls[taskID]
+	return ok
+}
+
+type respTest struct {
+	JSONInput   string
+	StatusCode  int
+	NumEnqueues int
+	TestName    string
+}
+
+func testResp(t *testing.T, inbox *Inbox, queuer *mockQueuer, storer *mockStorer, tests []respTest) {
 	for _, tt := range tests {
 		t.Run("request_status_code_"+tt.TestName, func(t *testing.T) {
+			queuer.Reset()
+			storer.Reset()
+
 			req := httptest.NewRequest("POST", "/", strings.NewReader(tt.JSONInput))
 			w := httptest.NewRecorder()
 			inbox.ServeHTTP(w, req)
@@ -224,27 +257,40 @@ func testResp(t *testing.T, inbox *Inbox, tests []respTest) {
 				t.FailNow()
 			}
 
+			enqueues := queuer.ListEnqueues()
+			if len(enqueues) != tt.NumEnqueues {
+				t.Errorf("expected %d enqueues but got %d enqueues", tt.NumEnqueues, len(enqueues))
+				t.FailNow()
+			}
+
+			for _, tID := range enqueues {
+				if !storer.HasPutCall(tID) {
+					t.Errorf("expected %s to be stored but it was not", tID)
+					t.FailNow()
+				}
+			}
+
 		})
 	}
 }
 
-func TestInboxHandler(t *testing.T) {
+func TestInboxHandlerResponse(t *testing.T) {
 	t.Parallel()
 
 	mockClient := &http.Client{
 		Transport: &mockTransport{Fallback: http.DefaultTransport},
 	}
-	queuer := newMockQueuer()
-	storer := newMockStorer()
-	i := NewInbox([]string{}, "https", "www.example.com", mockClient, queuer, storer)
+	q := newMockQueuer()
+	s := newMockStorer()
+	i := NewInbox([]string{}, "https", "www.example.com", mockClient, q, s)
 
-	testResp(t, i, []respTest{
-		{followJSON, http.StatusOK, "success_follow_json"},
-		{emptyIDFollowJSON, http.StatusOK, "success_follow_json_empty_id"},
-		{nullIDFollowJSON, http.StatusUnsupportedMediaType, "failure_follow_json_null_id"},
-		{missingIDFollowJSON, http.StatusUnsupportedMediaType, "failure_follow_json_missing_id"},
-		{noteJSON, http.StatusUnsupportedMediaType, "failure_note_json"},
-		{createNoteJSON, http.StatusOK, "success_create_note_json"},
+	testResp(t, i, q, s, []respTest{
+		{followJSON, http.StatusOK, 0, "success_follow_json"},
+		{emptyIDFollowJSON, http.StatusOK, 0, "success_follow_json_empty_id"},
+		{nullIDFollowJSON, http.StatusUnsupportedMediaType, 0, "failure_follow_json_null_id"},
+		{missingIDFollowJSON, http.StatusUnsupportedMediaType, 0, "failure_follow_json_missing_id"},
+		{noteJSON, http.StatusUnsupportedMediaType, 0, "failure_note_json"},
+		{createNoteJSON, http.StatusOK, 1, "success_create_note_json"},
 	})
 
 }

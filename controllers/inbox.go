@@ -138,7 +138,7 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 				_, writeErr := w.Write([]byte(err.Error()))
 				if writeErr != nil {
-					log.Printf("error writing response: %v\n", err)
+					log.Printf("error writing response: %v\n", writeErr)
 				}
 				continue
 			}
@@ -149,7 +149,7 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 				_, writeErr := w.Write([]byte(err.Error()))
 				if writeErr != nil {
-					log.Printf("error writing response: %v\n", err)
+					log.Printf("error writing response: %v\n", writeErr)
 				}
 				continue
 			}
@@ -163,7 +163,25 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			success := i.storer.Put(forward, taskID)
 			if !success {
-				log.Printf("error marshalling activity: %v\n", err)
+				log.Println("error storing activity")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, writeErr := w.Write([]byte("could not store task information"))
+				if writeErr != nil {
+					log.Printf("error writing response: %v\n", writeErr)
+				}
+				continue
+			}
+
+			success = i.queuer.Enqueue(taskID)
+			if !success {
+				// TODO: should we delete the task storage if we could not enqueue it properly?
+				log.Println("error enqueuing forward activity")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, writeErr := w.Write([]byte("could not enqueue forward activity"))
+				if writeErr != nil {
+					log.Printf("error writing response: %v\n", writeErr)
+				}
+				continue
 			}
 		}
 	}
