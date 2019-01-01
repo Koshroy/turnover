@@ -28,7 +28,6 @@ func (m *MemManager) Add(target url.URL) bool {
 	return true
 }
 
-
 // Remove removes a forwarding target from the manager
 func (m *MemManager) Remove(target url.URL) bool {
 	m.Lock()
@@ -37,7 +36,7 @@ func (m *MemManager) Remove(target url.URL) bool {
 	var i = 0
 	var url url.URL
 	var found = false
-	for i, url = range(m.targets) {
+	for i, url = range m.targets {
 		if url == target {
 			found = true
 			break
@@ -45,7 +44,7 @@ func (m *MemManager) Remove(target url.URL) bool {
 	}
 
 	if found {
-		m.targets = append(m.targets[:i], m.targets[i+1:]...)	
+		m.targets = append(m.targets[:i], m.targets[i+1:]...)
 	}
 
 	return found
