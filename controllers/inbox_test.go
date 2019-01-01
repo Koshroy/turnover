@@ -5,11 +5,13 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Koshroy/turnover/subscriptions"
 	"github.com/Koshroy/turnover/tasks"
 	"github.com/gofrs/uuid"
 )
@@ -22,12 +24,30 @@ const followJSON = `{
     "object": {
         "summary": "Follow request",
         "type": "Inbox",
-        "id": "https://www.example.com/inbox",
+        "id": "https://www.example.org/inbox",
         "attributedTo": "https://john.example.org"
     }
 }
 `
 
+var followJSONTarget = url.URL{
+	Scheme: "https",
+	Host:   "www.example.org",
+	Path:   "/inbox",
+}
+
+const unFollowJSON = `{
+    "@context": "https://www.w3.org/ns/activitystreams",
+    "@type": "Unfollow",
+    "id": "https://activities.example.org/1",
+    "actor": "https://sally.example.org",
+    "object": {
+        "summary": "Unfollow request",
+        "type": "Inbox",
+        "id": "https://www.activitypub.org/inbox"
+    }
+}
+`
 const emptyIDFollowJSON = `{
     "@context": "https://www.w3.org/ns/activitystreams",
     "@type": "Follow",
@@ -36,7 +56,7 @@ const emptyIDFollowJSON = `{
     "object": {
         "summary": "Follow request",
         "type": "Inbox",
-        "id": "https://www.example.com/inbox",
+        "id": "https://www.example.org/inbox",
         "attributedTo": "https://john.example.org"
     }
 }
@@ -50,7 +70,7 @@ const nullIDFollowJSON = `{
     "object": {
         "summary": "Follow request",
         "type": "Inbox",
-        "id": "https://www.example.com/inbox",
+        "id": "https://www.example.org/inbox",
         "attributedTo": "https://john.example.org"
     }
 }
@@ -63,7 +83,7 @@ const missingIDFollowJSON = `{
     "object": {
         "summary": "Follow request",
         "type": "Inbox",
-        "id": "https://www.example.com/inbox",
+        "id": "https://www.example.org/inbox",
         "attributedTo": "https://john.example.org"
     }
 }
@@ -75,7 +95,7 @@ const noteJSON = `{
     "id": "https://activities.example.org/2",
     "actor": "https://sally.example.org",
     "object": {
-        "id": "https://notes.example.com/1"
+        "id": "https://notes.example.org/1"
     }
 }
 `
@@ -220,29 +240,72 @@ func (s *mockStorer) Reset() {
 	s.putCalls = make(map[uuid.UUID]bool)
 }
 
-func (s *mockStorer) HasGetCall(taskID uuid.UUID) bool {
-	_, ok := s.getCalls[taskID]
-	return ok
-}
-
 func (s *mockStorer) HasPutCall(taskID uuid.UUID) bool {
 	_, ok := s.putCalls[taskID]
 	return ok
 }
 
-type respTest struct {
-	JSONInput   string
-	StatusCode  int
-	NumEnqueues int
-	TestName    string
+type mockForwardManager struct {
+	manager *subscriptions.MemManager
+	added   map[url.URL]bool
+	removed map[url.URL]bool
 }
 
-func testResp(t *testing.T, inbox *Inbox, queuer *mockQueuer, storer *mockStorer, tests []respTest) {
+func newMockForwardManager() *mockForwardManager {
+	return &mockForwardManager{
+		manager: subscriptions.NewMemManager(),
+		added:   make(map[url.URL]bool),
+		removed: make(map[url.URL]bool),
+	}
+}
+
+func (fm *mockForwardManager) Reset(initial []url.URL) error {
+	manager := subscriptions.NewMemManager()
+	for _, target := range initial {
+		success := manager.Add(target)
+		if !success {
+			return fmt.Errorf("could not add %s to forward manager", target.String())
+		}
+	}
+	fm.manager = manager
+	fm.added = make(map[url.URL]bool)
+	fm.removed = make(map[url.URL]bool)
+	return nil
+}
+
+func (fm *mockForwardManager) Add(target url.URL) bool {
+	success := fm.manager.Add(target)
+	if success {
+		fm.added[target] = true
+	}
+	return success
+}
+
+func (fm *mockForwardManager) Remove(target url.URL) bool {
+	success := fm.manager.Remove(target)
+	if success {
+		fm.removed[target] = true
+	}
+	return success
+}
+
+func (fm *mockForwardManager) List() []url.URL {
+	return fm.manager.List()
+}
+
+func (fm *mockForwardManager) IsAdd(url url.URL) bool {
+	return fm.added[url]
+}
+
+type respTest struct {
+	JSONInput  string
+	StatusCode int
+	TestName   string
+}
+
+func testResp(t *testing.T, inbox *Inbox, tests []respTest) {
 	for _, tt := range tests {
 		t.Run("request_status_code_"+tt.TestName, func(t *testing.T) {
-			queuer.Reset()
-			storer.Reset()
-
 			req := httptest.NewRequest("POST", "/", strings.NewReader(tt.JSONInput))
 			w := httptest.NewRecorder()
 			inbox.ServeHTTP(w, req)
@@ -250,6 +313,42 @@ func testResp(t *testing.T, inbox *Inbox, queuer *mockQueuer, storer *mockStorer
 			resp := w.Result()
 			if resp.StatusCode != tt.StatusCode {
 				t.Errorf("expected %d got %d", tt.StatusCode, resp.StatusCode)
+				respBytes, err := ioutil.ReadAll(resp.Body)
+				if err == nil {
+					t.Logf("response body: %v\n", string(respBytes))
+				}
+				t.FailNow()
+			}
+		})
+	}
+}
+
+type forwardTest struct {
+	JSONInput      string
+	NumEnqueues    int
+	ForwardTargets []url.URL
+	Adds, Removes  []url.URL
+	TestName       string
+}
+
+func testForward(t *testing.T, inbox *Inbox, queuer *mockQueuer, storer *mockStorer, forwarder *mockForwardManager, tests []forwardTest) {
+	for _, tt := range tests {
+		t.Run("request_forward_tasks_"+tt.TestName, func(t *testing.T) {
+			queuer.Reset()
+			storer.Reset()
+			err := forwarder.Reset(tt.ForwardTargets)
+			if err != nil {
+				t.Errorf("could not seed mock forward manager with targets: %v", err)
+				t.FailNow()
+			}
+
+			req := httptest.NewRequest("POST", "/", strings.NewReader(tt.JSONInput))
+			w := httptest.NewRecorder()
+			inbox.ServeHTTP(w, req)
+
+			resp := w.Result()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("expected %d got %d", http.StatusOK, resp.StatusCode)
 				respBytes, err := ioutil.ReadAll(resp.Body)
 				if err == nil {
 					t.Logf("response body: %v\n", string(respBytes))
@@ -270,6 +369,13 @@ func testResp(t *testing.T, inbox *Inbox, queuer *mockQueuer, storer *mockStorer
 				}
 			}
 
+			for _, add := range tt.Adds {
+				if !forwarder.IsAdd(add) {
+					t.Errorf("expected %s to be added but it was not", add.String())
+					t.FailNow()
+				}
+			}
+
 		})
 	}
 }
@@ -282,15 +388,23 @@ func TestInboxHandlerResponse(t *testing.T) {
 	}
 	q := newMockQueuer()
 	s := newMockStorer()
-	i := NewInbox([]string{}, "https", "www.example.com", mockClient, q, s)
+	fm := newMockForwardManager()
+	i := NewInbox([]string{}, "https", "www.example.org", mockClient, q, s, fm)
 
-	testResp(t, i, q, s, []respTest{
-		{followJSON, http.StatusOK, 0, "success_follow_json"},
-		{emptyIDFollowJSON, http.StatusOK, 0, "success_follow_json_empty_id"},
-		{nullIDFollowJSON, http.StatusUnsupportedMediaType, 0, "failure_follow_json_null_id"},
-		{missingIDFollowJSON, http.StatusUnsupportedMediaType, 0, "failure_follow_json_missing_id"},
-		{noteJSON, http.StatusUnsupportedMediaType, 0, "failure_note_json"},
-		{createNoteJSON, http.StatusOK, 1, "success_create_note_json"},
+	baseForwards := []url.URL{{Scheme: "https", Host: "www.activitypub.org", Path: "/inbox"}}
+
+	testResp(t, i, []respTest{
+		{followJSON, http.StatusOK, "success_follow_json"},
+		{emptyIDFollowJSON, http.StatusOK, "success_follow_json_empty_id"},
+		{nullIDFollowJSON, http.StatusUnsupportedMediaType, "failure_follow_json_null_id"},
+		{missingIDFollowJSON, http.StatusUnsupportedMediaType, "failure_follow_json_missing_id"},
+		{noteJSON, http.StatusUnsupportedMediaType, "failure_note_json"},
+		{createNoteJSON, http.StatusOK, "success_create_note_json"},
 	})
 
+	testForward(t, i, q, s, fm, []forwardTest{
+		{createNoteJSON, 1 * len(baseForwards), baseForwards, []url.URL{}, []url.URL{}, "create_note_json_task_enqueue"},
+		{followJSON, 0, []url.URL{}, []url.URL{followJSONTarget}, []url.URL{}, "follow_json_add_forward"},
+		//		{unFollowJSON, 0, baseForwards, []url.URL{}, baseForwards, "unfollow_json_remove_forward"},
+	})
 }

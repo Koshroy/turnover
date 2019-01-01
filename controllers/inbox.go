@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	"github.com/Koshroy/turnover/models"
+	"github.com/Koshroy/turnover/subscriptions"
 	"github.com/Koshroy/turnover/tasks"
 	"github.com/piprate/json-gold/ld"
 )
@@ -41,6 +42,7 @@ type Inbox struct {
 	scheme, domain string
 	queuer         tasks.Queuer
 	storer         tasks.Storer
+	manager        subscriptions.Manager
 }
 
 // NewInbox creates a new Inbox controller
@@ -50,6 +52,7 @@ func NewInbox(
 	client *http.Client,
 	queuer tasks.Queuer,
 	storer tasks.Storer,
+	manager subscriptions.Manager,
 ) *Inbox {
 	loader := ld.NewRFC7324CachingDocumentLoader(client)
 	opts := ld.NewJsonLdOptions("")
@@ -64,6 +67,15 @@ func NewInbox(
 		domain:    domain,
 		queuer:    queuer,
 		storer:    storer,
+		manager:   manager,
+	}
+}
+
+func errorResponse(w http.ResponseWriter, r *http.Request, statusCode int, err error) {
+	w.WriteHeader(statusCode)
+	_, writeErr := w.Write([]byte(err.Error()))
+	if writeErr != nil {
+		log.Printf("error writing response: %v\n", writeErr)
 	}
 }
 
@@ -71,20 +83,20 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, maxActivitySz)
 	bodyBytes, err := ioutil.ReadAll(body)
 	if err != nil {
-		w.WriteHeader(http.StatusNotAcceptable)
+		errorResponse(w, r, http.StatusNotAcceptable, errors.New("could not read http response"))
 		return
 	}
 
 	var raw map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &raw)
 	if err != nil {
-		w.WriteHeader(http.StatusUnsupportedMediaType)
+		errorResponse(w, r, http.StatusUnsupportedMediaType, errors.New("incorrect json request format"))
 		return
 	}
 
 	expanded, err := i.proc.Expand(raw, i.opts)
 	if err != nil {
-		w.WriteHeader(http.StatusUnsupportedMediaType)
+		errorResponse(w, r, http.StatusUnsupportedMediaType, err)
 		return
 	}
 
@@ -93,20 +105,18 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, rawActivity := range expanded {
 		activity, typeOk := rawActivity.(map[string]interface{})
 		if !typeOk {
-			w.WriteHeader(http.StatusUnsupportedMediaType)
-			_, writeErr := w.Write([]byte(err.Error()))
-			if writeErr != nil {
-				log.Printf("error writing response: %v\n", err)
-			}
+			errorResponse(w, r,
+				http.StatusUnsupportedMediaType,
+				errors.New("activity could not be converted properly"),
+			)
 			return
 		}
 		hydrated, err := hydrateActivity(activity)
 		if err != nil {
-			w.WriteHeader(http.StatusUnsupportedMediaType)
-			_, writeErr := w.Write([]byte(err.Error()))
-			if writeErr != nil {
-				log.Printf("error writing response: %v\n", err)
-			}
+			errorResponse(w, r,
+				http.StatusUnsupportedMediaType,
+				errors.New("could not convert json to activitypub form"),
+			)
 			return
 		}
 
@@ -117,11 +127,10 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				for _, objectActivity := range hydrated.Object {
 					if objectActivity.ID == nil ||
 						(*objectActivity.ID != myInboxURI) {
-						w.WriteHeader(http.StatusMethodNotAllowed)
-						_, err := w.Write([]byte("follows and unfollows can only be to " + myInboxURI))
-						if err != nil {
-							log.Printf("error writing response: %v\n", err)
-						}
+						errorResponse(w, r,
+							http.StatusMethodNotAllowed,
+							errors.New("follows and unfollows can only be to "+myInboxURI),
+						)
 						return
 					}
 				}
@@ -130,7 +139,45 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hydratedActivities = append(hydratedActivities, hydrated)
 	}
 
-	if !followTypes {
+	if followTypes {
+		for _, activity := range hydratedActivities {
+			for _, activityType := range activity.Type {
+				for _, activityObject := range activity.Object {
+					if activityObject.ID == nil {
+						errorResponse(w, r,
+							http.StatusUnsupportedMediaType,
+							errors.New("invalid follow target"),
+						)
+						return
+					}
+					objIDURL, err := url.Parse(*activityObject.ID)
+					if err != nil {
+						errorResponse(w, r,
+							http.StatusUnsupportedMediaType,
+							errors.New("follow URL is invalid"),
+						)
+						return
+					}
+					if activityType == followIRI {
+						success := i.manager.Add(*objIDURL)
+						if !success {
+							errorResponse(w, r,
+								http.StatusInternalServerError,
+								errors.New("could now follow URL"),
+							)
+							return
+						}
+					} else if activityType == unfollowIRI {
+						success := i.manager.Remove(*objIDURL)
+						if !success {
+							log.Printf("error unfollowing URL %v\n", *objIDURL)
+						}
+						return
+					}
+				}
+			}
+		}
+	} else {
 		for _, activity := range hydratedActivities {
 			taskID, err := tasks.NewTaskID()
 			if err != nil {
@@ -154,34 +201,36 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// TODO: add forward targets
-			forward := &tasks.Forward{
-				TaskID:   taskID,
-				Activity: activityBytes,
-				Client:   http.DefaultClient,
-			}
-
-			success := i.storer.Put(forward, taskID)
-			if !success {
-				log.Println("error storing activity")
-				w.WriteHeader(http.StatusInternalServerError)
-				_, writeErr := w.Write([]byte("could not store task information"))
-				if writeErr != nil {
-					log.Printf("error writing response: %v\n", writeErr)
+			for _, target := range i.manager.List() {
+				forward := &tasks.Forward{
+					Target:   target,
+					TaskID:   taskID,
+					Activity: activityBytes,
+					Client:   http.DefaultClient,
 				}
-				continue
-			}
 
-			success = i.queuer.Enqueue(taskID)
-			if !success {
-				// TODO: should we delete the task storage if we could not enqueue it properly?
-				log.Println("error enqueuing forward activity")
-				w.WriteHeader(http.StatusInternalServerError)
-				_, writeErr := w.Write([]byte("could not enqueue forward activity"))
-				if writeErr != nil {
-					log.Printf("error writing response: %v\n", writeErr)
+				success := i.storer.Put(forward, taskID)
+				if !success {
+					log.Println("error storing activity")
+					w.WriteHeader(http.StatusInternalServerError)
+					_, writeErr := w.Write([]byte("could not store task information"))
+					if writeErr != nil {
+						log.Printf("error writing response: %v\n", writeErr)
+					}
+					continue
 				}
-				continue
+
+				success = i.queuer.Enqueue(taskID)
+				if !success {
+					// TODO: should we delete the task storage if we could not enqueue it properly?
+					log.Println("error enqueuing forward activity")
+					w.WriteHeader(http.StatusInternalServerError)
+					_, writeErr := w.Write([]byte("could not enqueue forward activity"))
+					if writeErr != nil {
+						log.Printf("error writing response: %v\n", writeErr)
+					}
+					continue
+				}
 			}
 		}
 	}
