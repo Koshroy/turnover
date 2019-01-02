@@ -38,7 +38,7 @@ var followJSONTarget = url.URL{
 
 const unFollowJSON = `{
     "@context": "https://www.w3.org/ns/activitystreams",
-    "@type": "Unfollow",
+    "@type": "Undo",
     "id": "https://activities.example.org/1",
     "actor": "https://sally.example.org",
     "object": {
@@ -294,7 +294,13 @@ func (fm *mockForwardManager) List() []url.URL {
 }
 
 func (fm *mockForwardManager) IsAdd(url url.URL) bool {
-	return fm.added[url]
+	_, ok := fm.added[url]
+	return ok
+}
+
+func (fm *mockForwardManager) IsRemove(url url.URL) bool {
+	_, ok := fm.removed[url]
+	return ok
 }
 
 type respTest struct {
@@ -376,6 +382,13 @@ func testForward(t *testing.T, inbox *Inbox, queuer *mockQueuer, storer *mockSto
 				}
 			}
 
+			for _, remove := range tt.Removes {
+				if !forwarder.IsRemove(remove) {
+					t.Errorf("expected %s to be removed but it was not", remove.String())
+					t.FailNow()
+				}
+			}
+
 		})
 	}
 }
@@ -405,6 +418,6 @@ func TestInboxHandlerResponse(t *testing.T) {
 	testForward(t, i, q, s, fm, []forwardTest{
 		{createNoteJSON, 1 * len(baseForwards), baseForwards, []url.URL{}, []url.URL{}, "create_note_json_task_enqueue"},
 		{followJSON, 0, []url.URL{}, []url.URL{followJSONTarget}, []url.URL{}, "follow_json_add_forward"},
-		//		{unFollowJSON, 0, baseForwards, []url.URL{}, baseForwards, "unfollow_json_remove_forward"},
+		{unFollowJSON, 0, baseForwards, []url.URL{}, baseForwards, "unfollow_json_remove_forward"},
 	})
 }

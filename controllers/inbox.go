@@ -3,6 +3,7 @@ package controllers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -16,14 +17,14 @@ import (
 
 const maxActivitySz = 16 * (1 << 20) // 16 MB
 const followIRI = "https://www.w3.org/ns/activitystreams#Follow"
-const unfollowIRI = "https://www.w3.org/ns/activitystreams#Unfollow"
+const undoIRI = "https://www.w3.org/ns/activitystreams#Undo"
 const createIRI = "https://www.w3.org/ns/activitystreams#Create"
 const readIRI = "https://www.w3.org/ns/activitystreams#Read"
 const updateIRI = "https://www.w3.org/ns/activitystreams#Update"
 const deleteIRI = "https://www.w3.org/ns/activitystreams#Delete"
 
 // ErrUnsupportedActivityType is returned when the activity
-// contains a type that is not Follow, Create, Read, Update, Delete, or Unfollow
+// contains a type that is not Follow, Create, Read, Update, Delete, or Undo
 // or is a multi-type activity
 var ErrUnsupportedActivityType = errors.New("unsupported activity type")
 
@@ -32,6 +33,13 @@ var ErrNullIDUnsupported = errors.New("activity id cannot be null or missing")
 
 // ErrIncorrectFollow is returned when a non-inbox endpoint is attempted to be followed
 var ErrIncorrectFollow = errors.New("cannot follow this resource")
+
+const (
+	followDecision = iota
+	unfollowDecision
+	otherDecision
+	invalidDecision
+)
 
 // Inbox is a controller that controls the Inbox endpoint
 type Inbox struct {
@@ -100,7 +108,6 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	followTypes := false
 	hydratedActivities := make([]*models.Activity, 0)
 	for _, rawActivity := range expanded {
 		activity, typeOk := rawActivity.(map[string]interface{})
@@ -115,84 +122,70 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			errorResponse(w, r,
 				http.StatusUnsupportedMediaType,
-				errors.New("could not convert json to activitypub form"),
+				errors.New("could not convert json to activitypub form: "+err.Error()),
 			)
 			return
 		}
 
-		myInboxURI := i.routeURL("/inbox", "").String()
-		for _, hydratedType := range hydrated.Type {
-			if hydratedType == followIRI || hydratedType == unfollowIRI {
-				followTypes = true
-				for _, objectActivity := range hydrated.Object {
-					if objectActivity.ID == nil ||
-						(*objectActivity.ID != myInboxURI) {
-						errorResponse(w, r,
-							http.StatusMethodNotAllowed,
-							errors.New("follows and unfollows can only be to "+myInboxURI),
-						)
-						return
-					}
-				}
-			}
-		}
 		hydratedActivities = append(hydratedActivities, hydrated)
 	}
 
-	if followTypes {
-		for _, activity := range hydratedActivities {
-			for _, activityType := range activity.Type {
-				for _, activityObject := range activity.Object {
-					if activityObject.ID == nil {
-						errorResponse(w, r,
-							http.StatusUnsupportedMediaType,
-							errors.New("invalid follow target"),
-						)
-						return
-					}
-					objIDURL, err := url.Parse(*activityObject.ID)
-					if err != nil {
-						errorResponse(w, r,
-							http.StatusUnsupportedMediaType,
-							errors.New("follow URL is invalid"),
-						)
-						return
-					}
-					if activityType == followIRI {
-						success := i.manager.Add(*objIDURL)
-						if !success {
-							errorResponse(w, r,
-								http.StatusInternalServerError,
-								errors.New("could now follow URL"),
-							)
-							return
-						}
-					} else if activityType == unfollowIRI {
-						success := i.manager.Remove(*objIDURL)
-						if !success {
-							log.Printf("error unfollowing URL %v\n", *objIDURL)
-						}
-						return
-					}
+	myInboxURI := i.routeURL("/inbox", "")
+
+	for _, activity := range hydratedActivities {
+		decision := followOrUnfollowActivity(*activity, myInboxURI.String())
+		switch decision {
+		case followDecision:
+			objIDURLs, err := getObjectIDURLs(*activity)
+			if err != nil {
+				errorResponse(w, r,
+					http.StatusUnsupportedMediaType,
+					fmt.Errorf("invalid follow target: %v", err),
+				)
+				return
+			}
+
+			if !filterURL(objIDURLs, myInboxURI) {
+				errorResponse(w, r,
+					http.StatusUnsupportedMediaType,
+					fmt.Errorf("follow targets can only be the inbox of this server"),
+				)
+				return
+			}
+
+			// TODO add in the follow/unfollow
+			//i.manager.Add()
+		case unfollowDecision:
+			for _, object := range activity.Object {
+				objIDURLs, err := getObjectIDURLs(object)
+				if err != nil {
+					errorResponse(w, r,
+						http.StatusUnsupportedMediaType,
+						fmt.Errorf("invalid unfollow target: %v", err),
+					)
+					return
+				}
+
+				if !filterURL(objIDURLs, myInboxURI) {
+					errorResponse(w, r,
+						http.StatusUnsupportedMediaType,
+						fmt.Errorf("unfollow targets can only be the inbox of this server"),
+					)
+					return
 				}
 			}
-		}
-	} else {
-		for _, activity := range hydratedActivities {
+		case otherDecision:
 			taskID, err := tasks.NewTaskID()
 			if err != nil {
 				log.Printf("error generating task ID: %v\n", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				_, writeErr := w.Write([]byte(err.Error()))
-				if writeErr != nil {
-					log.Printf("error writing response: %v\n", writeErr)
-				}
+				errorResponse(w, r, http.StatusInternalServerError, err)
 				continue
 			}
 
 			activityBytes, err := json.Marshal(activity)
 			if err != nil {
 				log.Printf("error marshalling activity: %v\n", err)
+				errorResponse(w, r, http.StatusInternalServerError, err)
 				w.WriteHeader(http.StatusInternalServerError)
 				_, writeErr := w.Write([]byte(err.Error()))
 				if writeErr != nil {
@@ -232,6 +225,9 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
+		case invalidDecision:
+			errorResponse(w, r, http.StatusUnsupportedMediaType, errors.New("invalid activitypub type"))
+			return
 		}
 	}
 }
@@ -261,7 +257,7 @@ func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
 			activityType != updateIRI &&
 			activityType != readIRI &&
 			activityType != deleteIRI &&
-			activityType != unfollowIRI {
+			activityType != undoIRI {
 			return nil, ErrUnsupportedActivityType
 		}
 	}
@@ -272,6 +268,67 @@ func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
 	}
 
 	return &activity, nil
+}
+
+func followOrUnfollowActivity(activity models.Activity, inboxURL string) int {
+	for _, aType := range activity.Type {
+		if aType == followIRI {
+			for _, object := range activity.Object {
+				if object.ID != nil && *object.ID == inboxURL {
+					return followDecision
+				}
+			}
+			return invalidDecision
+		}
+
+		if aType == undoIRI {
+			for _, object := range activity.Object {
+				for _, oType := range object.Type {
+					if oType == followIRI {
+						if object.ID != nil && *object.ID == inboxURL {
+							return unfollowDecision
+						}
+
+						return invalidDecision
+					}
+				}
+			}
+		}
+	}
+	return otherDecision
+}
+
+func getObjectIDURLs(activity models.Activity) ([]*url.URL, error) {
+	retURLs := make([]*url.URL, 0)
+
+	for _, object := range activity.Object {
+		objID := object.ID
+		if objID == nil {
+			continue
+		}
+		objIDURL, err := url.Parse(*objID)
+		if err != nil {
+			return nil, fmt.Errorf("activity has object with ID %v that is not a valid URL: %v", *objID, err)
+		}
+		retURLs = append(retURLs, objIDURL)
+	}
+
+	if len(retURLs) == 0 {
+		return retURLs, errors.New("no objects found in activity")
+	}
+
+	return retURLs, nil
+
+}
+
+func filterURL(urls []*url.URL, needle *url.URL) bool {
+	for _, url := range urls {
+		if *needle == *url {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (i Inbox) routeURL(path, fragment string) *url.URL {
