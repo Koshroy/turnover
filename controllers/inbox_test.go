@@ -23,7 +23,7 @@ const followJSON = `{
     "actor": "https://sally.example.org",
     "object": {
         "summary": "Follow request",
-        "type": "Inbox",
+        "@type": "Inbox",
         "id": "https://www.example.org/inbox",
         "attributedTo": "https://john.example.org"
     }
@@ -38,12 +38,15 @@ var followJSONTarget = url.URL{
 const unFollowJSON = `{
     "@context": "https://www.w3.org/ns/activitystreams",
     "@type": "Undo",
-    "id": "https://activities.example.org/1",
+    "id": "https://activities.example.org/2",
     "actor": "https://sally.example.org",
     "object": {
         "summary": "Unfollow request",
-        "type": "Inbox",
-        "id": "https://www.activitypub.org/inbox"
+        "type": "Follow",
+        "id": "https://activities.example.org/2",
+        "object": {
+            "id": "https://www.example.org/inbox"
+        }
     }
 }
 `
@@ -403,7 +406,7 @@ func TestInboxHandlerResponse(t *testing.T) {
 	fm := newMockForwardManager()
 	i := NewInbox([]string{}, "https", "www.example.org", mockClient, q, s, fm)
 
-	baseForwards := []url.URL{{Scheme: "https", Host: "sally.example.org", Path: "/inbox"}}
+	baseForwards := []url.URL{{Scheme: "https", Host: "sally.example.org"}}
 
 	testResp(t, i, []respTest{
 		{followJSON, http.StatusOK, "success_follow_json"},

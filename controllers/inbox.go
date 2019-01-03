@@ -161,6 +161,14 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				)
 			}
 
+			if len(actIDURLs) == 0 {
+				errorResponse(w, r,
+					http.StatusInternalServerError,
+					errors.New("follow request did not complete"),
+				)
+				return
+			}
+
 			for _, aIDURL := range actIDURLs {
 				ok := i.manager.Add(*aIDURL)
 				if !ok {
@@ -171,6 +179,7 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+
 		case unfollowDecision:
 			for _, object := range activity.Object {
 				objIDURLs, err := getObjectIDURLs(object)
@@ -188,6 +197,33 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						fmt.Errorf("unfollow targets can only be the inbox of this server"),
 					)
 					return
+				}
+
+				actIDURLs, err := getActorIDURLs(*activity)
+				if err != nil {
+					errorResponse(w, r,
+						http.StatusUnsupportedMediaType,
+						fmt.Errorf("invalid follow source: %v", err),
+					)
+				}
+
+				if len(actIDURLs) == 0 {
+					errorResponse(w, r,
+						http.StatusInternalServerError,
+						errors.New("follow request did not complete"),
+					)
+					return
+				}
+
+				for _, actIDURL := range actIDURLs {
+					ok := i.manager.Remove(*actIDURL)
+					if !ok {
+						errorResponse(w, r,
+							http.StatusUnsupportedMediaType,
+							fmt.Errorf("could not unfollow URL: %s", actIDURL.String()),
+						)
+						return
+					}
 				}
 			}
 		case otherDecision:
@@ -295,10 +331,13 @@ func followOrUnfollowActivity(activity models.Activity, inboxURL string) int {
 			for _, object := range activity.Object {
 				for _, oType := range object.Type {
 					if oType == followIRI {
-						if object.ID != nil && *object.ID == inboxURL {
-							return unfollowDecision
+						for _, objObj := range object.Object {
+							if objObj.ID != nil && *objObj.ID == inboxURL {
+								return unfollowDecision
+							}
 						}
 
+						// TODO: if objects is empty, we should look up via ID
 						return invalidDecision
 					}
 				}
