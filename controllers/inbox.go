@@ -153,8 +153,24 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// TODO add in the follow/unfollow
-			//i.manager.Add()
+			actIDURLs, err := getActorIDURLs(*activity)
+			if err != nil {
+				errorResponse(w, r,
+					http.StatusUnsupportedMediaType,
+					fmt.Errorf("invalid follow source: %v", err),
+				)
+			}
+
+			for _, aIDURL := range actIDURLs {
+				ok := i.manager.Add(*aIDURL)
+				if !ok {
+					errorResponse(w, r,
+						http.StatusUnsupportedMediaType,
+						fmt.Errorf("could not follow URL: %s", aIDURL.String()),
+					)
+					return
+				}
+			}
 		case unfollowDecision:
 			for _, object := range activity.Object {
 				objIDURLs, err := getObjectIDURLs(object)
@@ -186,11 +202,6 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Printf("error marshalling activity: %v\n", err)
 				errorResponse(w, r, http.StatusInternalServerError, err)
-				w.WriteHeader(http.StatusInternalServerError)
-				_, writeErr := w.Write([]byte(err.Error()))
-				if writeErr != nil {
-					log.Printf("error writing response: %v\n", writeErr)
-				}
 				continue
 			}
 
@@ -241,8 +252,7 @@ func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
 
 	activityBytes, err := json.Marshal(raw)
 	if err != nil {
-		// TODO: let's wrap this error to make this a better function
-		return nil, err
+		return nil, fmt.Errorf("could not marshall JSON properly: %v", err)
 	}
 
 	var activity models.Activity
@@ -319,6 +329,28 @@ func getObjectIDURLs(activity models.Activity) ([]*url.URL, error) {
 
 	return retURLs, nil
 
+}
+
+func getActorIDURLs(activity models.Activity) ([]*url.URL, error) {
+	retURLs := make([]*url.URL, 0)
+
+	for _, actor := range activity.Actor {
+		if actor.ID == nil {
+			continue
+		}
+
+		aIDURL, err := url.Parse(*actor.ID)
+		if err != nil {
+			return nil, fmt.Errorf("activity has type with ID %v that is not a valid URL: %v", *actor.ID, err)
+		}
+		retURLs = append(retURLs, aIDURL)
+	}
+
+	if len(retURLs) == 0 {
+		return retURLs, errors.New("no actors found in activity")
+	}
+
+	return retURLs, nil
 }
 
 func filterURL(urls []*url.URL, needle *url.URL) bool {

@@ -404,7 +404,7 @@ func TestInboxHandlerResponse(t *testing.T) {
 	fm := newMockForwardManager()
 	i := NewInbox([]string{}, "https", "www.example.org", mockClient, q, s, fm)
 
-	baseForwards := []url.URL{{Scheme: "https", Host: "www.activitypub.org", Path: "/inbox"}}
+	baseForwards := []url.URL{{Scheme: "https", Host: "sally.example.org", Path: "/inbox"}}
 
 	testResp(t, i, []respTest{
 		{followJSON, http.StatusOK, "success_follow_json"},
