@@ -32,8 +32,7 @@ const followJSON = `{
 
 var followJSONTarget = url.URL{
 	Scheme: "https",
-	Host:   "www.example.org",
-	Path:   "/inbox",
+	Host:   "sally.example.org",
 }
 
 const unFollowJSON = `{
