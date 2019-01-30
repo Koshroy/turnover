@@ -12,6 +12,7 @@ import (
 	"github.com/Koshroy/turnover/models"
 	"github.com/Koshroy/turnover/subscriptions"
 	"github.com/Koshroy/turnover/tasks"
+	"github.com/gofrs/uuid"
 	"github.com/piprate/json-gold/ld"
 )
 
@@ -40,6 +41,11 @@ const (
 	otherDecision
 	invalidDecision
 )
+
+type httpError struct {
+	statusCode int
+	msg        string
+}
 
 // Inbox is a controller that controls the Inbox endpoint
 type Inbox struct {
@@ -79,32 +85,172 @@ func NewInbox(
 	}
 }
 
-func errorResponse(w http.ResponseWriter, r *http.Request, statusCode int, err error) {
-	w.WriteHeader(statusCode)
-	_, writeErr := w.Write([]byte(err.Error()))
+func errorResponse(w http.ResponseWriter, r *http.Request, code int, msg string) {
+	w.WriteHeader(code)
+	_, writeErr := w.Write([]byte(msg))
 	if writeErr != nil {
 		log.Printf("error writing response: %v\n", writeErr)
 	}
+}
+
+func (i Inbox) inboxURL() *url.URL {
+	return i.routeURL("/inbox", "")
+}
+
+func (i Inbox) processFollow(activity *models.Activity) *httpError {
+	objIDURLs, err := getObjectIDURLs(*activity)
+	if err != nil {
+		return &httpError{
+			http.StatusUnsupportedMediaType,
+			fmt.Sprintf("invalid follow target: %v", err),
+		}
+	}
+
+	if !filterURL(objIDURLs, i.inboxURL()) {
+		return &httpError{
+			http.StatusUnsupportedMediaType,
+			fmt.Sprintf("follow targets can only be the inbox of this server"),
+		}
+	}
+
+	actIDURLs, err := getActorIDURLs(*activity)
+	if err != nil {
+		return &httpError{
+			http.StatusUnsupportedMediaType,
+			fmt.Sprintf("invalid follow source: %v", err),
+		}
+	}
+
+	if len(actIDURLs) == 0 {
+		return &httpError{
+			http.StatusInternalServerError,
+			"follow request did not complete",
+		}
+	}
+
+	for _, aIDURL := range actIDURLs {
+		ok := i.manager.Add(*aIDURL)
+		if !ok {
+			return &httpError{
+				http.StatusUnsupportedMediaType,
+				fmt.Sprintf("could not follow URL: %s", aIDURL.String()),
+			}
+		}
+	}
+
+	return nil
+}
+
+func (i Inbox) processUnfollow(activity *models.Activity) *httpError {
+	for _, object := range activity.Object {
+		objIDURLs, err := getObjectIDURLs(object)
+		if err != nil {
+			return &httpError{
+				http.StatusUnsupportedMediaType,
+				fmt.Sprintf("invalid unfollow target: %v", err),
+			}
+		}
+
+		if !filterURL(objIDURLs, i.inboxURL()) {
+			return &httpError{
+				http.StatusUnsupportedMediaType,
+				"unfollow targets can only be the inbox of this server",
+			}
+		}
+
+		actIDURLs, err := getActorIDURLs(*activity)
+		if err != nil {
+			return &httpError{
+				http.StatusUnsupportedMediaType,
+				fmt.Sprintf("invalid follow source: %v", err),
+			}
+		}
+
+		if len(actIDURLs) == 0 {
+			return &httpError{
+				http.StatusInternalServerError,
+				"follow request did not complete",
+			}
+		}
+
+		for _, actIDURL := range actIDURLs {
+			ok := i.manager.Remove(*actIDURL)
+			if !ok {
+				return &httpError{
+					http.StatusUnsupportedMediaType,
+					fmt.Sprintf("could not unfollow URL: %s", actIDURL.String()),
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (i Inbox) forwardToTarget(target *url.URL, activityBytes []byte, taskID uuid.UUID) {
+	forward := &tasks.Forward{
+		Target:   *target,
+		TaskID:   taskID,
+		Activity: activityBytes,
+		Client:   http.DefaultClient,
+	}
+
+	success := i.storer.Put(forward, taskID)
+	if !success {
+		log.Println("error storing activity")
+	}
+
+	success = i.queuer.Enqueue(taskID)
+	if !success {
+		// TODO: should we delete the task storage if we could not enqueue it properly?
+		log.Println("error enqueuing forward activity")
+	}
+}
+
+func (i Inbox) forward(activity *models.Activity) *httpError {
+	taskID, err := tasks.NewTaskID()
+	if err != nil {
+		log.Printf("error generating task ID: %v\n", err)
+		return &httpError{
+			http.StatusInternalServerError,
+			err.Error(),
+		}
+	}
+
+	activityBytes, err := json.Marshal(activity)
+	if err != nil {
+		log.Printf("error marshalling activity: %v\n", err)
+		return &httpError{
+			http.StatusInternalServerError,
+			err.Error(),
+		}
+	}
+
+	for _, target := range i.manager.List() {
+		i.forwardToTarget(&target, activityBytes, taskID)
+	}
+
+	return nil
 }
 
 func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, maxActivitySz)
 	bodyBytes, err := ioutil.ReadAll(body)
 	if err != nil {
-		errorResponse(w, r, http.StatusNotAcceptable, errors.New("could not read http response"))
+		errorResponse(w, r, http.StatusNotAcceptable, "could not read http response")
 		return
 	}
 
 	var raw map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &raw)
 	if err != nil {
-		errorResponse(w, r, http.StatusUnsupportedMediaType, errors.New("incorrect json request format"))
+		errorResponse(w, r, http.StatusUnsupportedMediaType, "incorrect json request format")
 		return
 	}
 
 	expanded, err := i.proc.Expand(raw, i.opts)
 	if err != nil {
-		errorResponse(w, r, http.StatusUnsupportedMediaType, err)
+		errorResponse(w, r, http.StatusUnsupportedMediaType, err.Error())
 		return
 	}
 
@@ -114,7 +260,7 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !typeOk {
 			errorResponse(w, r,
 				http.StatusUnsupportedMediaType,
-				errors.New("activity could not be converted properly"),
+				"activity could not be converted properly",
 			)
 			return
 		}
@@ -122,7 +268,7 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			errorResponse(w, r,
 				http.StatusUnsupportedMediaType,
-				errors.New("could not convert json to activitypub form: "+err.Error()),
+				fmt.Sprintf("could not convert json to activitypub form: %v", err.Error()),
 			)
 			return
 		}
@@ -130,150 +276,35 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hydratedActivities = append(hydratedActivities, hydrated)
 	}
 
-	myInboxURI := i.routeURL("/inbox", "")
+	myInboxURI := i.inboxURL()
 
 	for _, activity := range hydratedActivities {
-		decision := followOrUnfollowActivity(*activity, myInboxURI.String())
+		decision := activityDecision(*activity, myInboxURI.String())
+		var hErr *httpError
+
 		switch decision {
 		case followDecision:
-			objIDURLs, err := getObjectIDURLs(*activity)
-			if err != nil {
-				errorResponse(w, r,
-					http.StatusUnsupportedMediaType,
-					fmt.Errorf("invalid follow target: %v", err),
-				)
-				return
-			}
-
-			if !filterURL(objIDURLs, myInboxURI) {
-				errorResponse(w, r,
-					http.StatusUnsupportedMediaType,
-					fmt.Errorf("follow targets can only be the inbox of this server"),
-				)
-				return
-			}
-
-			actIDURLs, err := getActorIDURLs(*activity)
-			if err != nil {
-				errorResponse(w, r,
-					http.StatusUnsupportedMediaType,
-					fmt.Errorf("invalid follow source: %v", err),
-				)
-			}
-
-			if len(actIDURLs) == 0 {
-				errorResponse(w, r,
-					http.StatusInternalServerError,
-					errors.New("follow request did not complete"),
-				)
-				return
-			}
-
-			for _, aIDURL := range actIDURLs {
-				ok := i.manager.Add(*aIDURL)
-				if !ok {
-					errorResponse(w, r,
-						http.StatusUnsupportedMediaType,
-						fmt.Errorf("could not follow URL: %s", aIDURL.String()),
-					)
-					return
-				}
-			}
+			hErr = i.processFollow(activity)
 
 		case unfollowDecision:
-			for _, object := range activity.Object {
-				objIDURLs, err := getObjectIDURLs(object)
-				if err != nil {
-					errorResponse(w, r,
-						http.StatusUnsupportedMediaType,
-						fmt.Errorf("invalid unfollow target: %v", err),
-					)
-					return
-				}
-
-				if !filterURL(objIDURLs, myInboxURI) {
-					errorResponse(w, r,
-						http.StatusUnsupportedMediaType,
-						fmt.Errorf("unfollow targets can only be the inbox of this server"),
-					)
-					return
-				}
-
-				actIDURLs, err := getActorIDURLs(*activity)
-				if err != nil {
-					errorResponse(w, r,
-						http.StatusUnsupportedMediaType,
-						fmt.Errorf("invalid follow source: %v", err),
-					)
-				}
-
-				if len(actIDURLs) == 0 {
-					errorResponse(w, r,
-						http.StatusInternalServerError,
-						errors.New("follow request did not complete"),
-					)
-					return
-				}
-
-				for _, actIDURL := range actIDURLs {
-					ok := i.manager.Remove(*actIDURL)
-					if !ok {
-						errorResponse(w, r,
-							http.StatusUnsupportedMediaType,
-							fmt.Errorf("could not unfollow URL: %s", actIDURL.String()),
-						)
-						return
-					}
-				}
+			hErr = i.processUnfollow(activity)
+			if hErr != nil {
+				errorResponse(w, r, hErr.statusCode, hErr.msg)
 			}
 		case otherDecision:
-			taskID, err := tasks.NewTaskID()
-			if err != nil {
-				log.Printf("error generating task ID: %v\n", err)
-				errorResponse(w, r, http.StatusInternalServerError, err)
-				continue
-			}
-
-			activityBytes, err := json.Marshal(activity)
-			if err != nil {
-				log.Printf("error marshalling activity: %v\n", err)
-				errorResponse(w, r, http.StatusInternalServerError, err)
-				continue
-			}
-
-			for _, target := range i.manager.List() {
-				forward := &tasks.Forward{
-					Target:   target,
-					TaskID:   taskID,
-					Activity: activityBytes,
-					Client:   http.DefaultClient,
-				}
-
-				success := i.storer.Put(forward, taskID)
-				if !success {
-					log.Println("error storing activity")
-					w.WriteHeader(http.StatusInternalServerError)
-					_, writeErr := w.Write([]byte("could not store task information"))
-					if writeErr != nil {
-						log.Printf("error writing response: %v\n", writeErr)
-					}
-					continue
-				}
-
-				success = i.queuer.Enqueue(taskID)
-				if !success {
-					// TODO: should we delete the task storage if we could not enqueue it properly?
-					log.Println("error enqueuing forward activity")
-					w.WriteHeader(http.StatusInternalServerError)
-					_, writeErr := w.Write([]byte("could not enqueue forward activity"))
-					if writeErr != nil {
-						log.Printf("error writing response: %v\n", writeErr)
-					}
-					continue
-				}
+			hErr = i.forward(activity)
+			if hErr != nil {
+				errorResponse(w, r, hErr.statusCode, hErr.msg)
 			}
 		case invalidDecision:
-			errorResponse(w, r, http.StatusUnsupportedMediaType, errors.New("invalid activitypub type"))
+			hErr = &httpError{
+				http.StatusUnsupportedMediaType,
+				"invalid activitypub type",
+			}
+		}
+
+		if hErr != nil {
+			errorResponse(w, r, hErr.statusCode, hErr.msg)
 			return
 		}
 	}
@@ -316,7 +347,7 @@ func hydrateActivity(raw map[string]interface{}) (*models.Activity, error) {
 	return &activity, nil
 }
 
-func followOrUnfollowActivity(activity models.Activity, inboxURL string) int {
+func activityDecision(activity models.Activity, inboxURL string) int {
 	for _, aType := range activity.Type {
 		if aType == followIRI {
 			for _, object := range activity.Object {
