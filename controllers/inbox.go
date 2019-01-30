@@ -285,17 +285,10 @@ func (i Inbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch decision {
 		case followDecision:
 			hErr = i.processFollow(activity)
-
 		case unfollowDecision:
 			hErr = i.processUnfollow(activity)
-			if hErr != nil {
-				errorResponse(w, r, hErr.statusCode, hErr.msg)
-			}
 		case otherDecision:
 			hErr = i.forward(activity)
-			if hErr != nil {
-				errorResponse(w, r, hErr.statusCode, hErr.msg)
-			}
 		case invalidDecision:
 			hErr = &httpError{
 				http.StatusUnsupportedMediaType,
